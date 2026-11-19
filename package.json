@@ -1,12 +1,12 @@
 {
-  "name": "figma-developer-mcp",
+  "name": "@blocksuser/figma-mcp",
   "version": "0.13.2",
-  "mcpName": "io.github.GLips/Figma-Context-MCP",
-  "description": "Give your coding agent access to your Figma data. Implement designs in any framework in one-shot.",
+  "mcpName": "io.github.BlocksOrg/Figma-Context-MCP",
+  "description": "Blocks fork of Framelink's Figma MCP server: hardened dependencies, no telemetry, per-request token resolution.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "figma-developer-mcp": "dist/bin.js"
+    "figma-mcp": "dist/bin.js"
   },
   "files": [
     "dist",
@@ -35,37 +35,52 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "lefthook"
-    ]
+    ],
+    "overrides": {
+      "proxy-addr": ">=2.0.8",
+      "body-parser": ">=2.4.0",
+      "qs": ">=6.16.1",
+      "path-to-regexp": ">=8.4.0 <9",
+      "hono": ">=4.13.16",
+      "@hono/node-server": ">=2.1.3",
+      "express-rate-limit": ">=8.2.2",
+      "ip-address": ">=10.7.4",
+      "fast-uri": ">=3.1.9 <4",
+      "zod": ">=4.6.6"
+    }
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GLips/Figma-Context-MCP.git"
+    "url": "git+https://github.com/BlocksOrg/Figma-Context-MCP.git"
   },
-  "homepage": "https://www.framelink.ai",
+  "homepage": "https://github.com/BlocksOrg/Figma-Context-MCP#readme",
+  "bugs": {
+    "url": "https://github.com/BlocksOrg/Figma-Context-MCP/issues"
+  },
   "keywords": [
     "figma",
     "mcp",
-    "typescript"
+    "typescript",
+    "blocks"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@figma/rest-api-spec": "^0.37.0",
-    "@jimp/core": "^1.6.0",
-    "@jimp/js-gif": "^1.6.0",
-    "@jimp/js-jpeg": "^1.6.0",
-    "@jimp/js-png": "^1.6.0",
-    "@jimp/plugin-crop": "^1.6.0",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@figma/rest-api-spec": "^0.47.0",
+    "@jimp/core": "^1.6.1",
+    "@jimp/js-gif": "^1.6.1",
+    "@jimp/js-jpeg": "^1.6.1",
+    "@jimp/js-png": "^1.6.1",
+    "@jimp/plugin-crop": "^1.6.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "cleye": "^2.2.1",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.7",
-    "express": "^5.2.1",
-    "js-yaml": "^4.1.1",
-    "posthog-node": "^5.29.2",
+    "express": "^5.3.0",
+    "js-yaml": "^4.3.2",
     "remeda": "^2.20.1",
-    "undici": "^7.25.0",
-    "zod": "^3.25.76"
+    "undici": "^7.30.1",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

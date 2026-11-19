@@ -6,7 +6,7 @@ import { startServer } from "./server.js";
 import { fetchCommand } from "./commands/fetch.js";
 
 const argv = cli({
-  name: "figma-developer-mcp",
+  name: "figma-mcp",
   version: process.env.NPM_PACKAGE_VERSION ?? "unknown",
   flags: {
     figmaApiKey: {
@@ -16,6 +16,11 @@ const argv = cli({
     figmaOauthToken: {
       type: String,
       description: "Figma OAuth Bearer token",
+    },
+    figmaOauthTokenFile: {
+      type: String,
+      description:
+        "File holding a Figma OAuth token, re-read on every request so a rotated token is picked up without a restart. Defaults to ~/.config/figma/.oauth_token; pass an empty string to disable.",
     },
     env: {
       type: String,
@@ -54,10 +59,6 @@ const argv = cli({
     stdio: {
       type: Boolean,
       description: "Run in stdio transport mode for MCP clients",
-    },
-    noTelemetry: {
-      type: Boolean,
-      description: "Disable usage telemetry (telemetry is on by default)",
     },
   },
   commands: [fetchCommand],

@@ -8,7 +8,7 @@ Please report security vulnerabilities responsibly.
 
 ### How to Report
 
-1. **GitHub Security Advisories**: [Report privately](https://github.com/GLips/Figma-Context-MCP/security/advisories/new)
+1. **GitHub Security Advisories**: [Report privately](https://github.com/BlocksOrg/Figma-Context-MCP/security/advisories/new)
 2. **Email**: Contact the maintainers directly
 
 ### Response Timeline
@@ -20,8 +20,8 @@ Please report security vulnerabilities responsibly.
 ## Supported Versions
 
 | Version | Supported |
-|---------|:---------:|
-| Latest  | ✅        |
+| ------- | :-------: |
+| Latest  |    ✅     |
 
 ## MCP Security Best Practices
 

@@ -1,16 +1,16 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.GLips/Figma-Context-MCP",
-  "description": "Give your coding agent access to your Figma data. Implement designs in any framework in one-shot.",
+  "name": "io.github.BlocksOrg/Figma-Context-MCP",
+  "description": "Blocks fork of Framelink's Figma MCP server: hardened dependencies, no telemetry, per-request token resolution.",
   "repository": {
-    "url": "https://github.com/GLips/Figma-Context-MCP",
+    "url": "https://github.com/BlocksOrg/Figma-Context-MCP",
     "source": "github"
   },
   "version": "0.6.4",
   "packages": [
     {
       "registryType": "npm",
-      "identifier": "figma-developer-mcp",
+      "identifier": "@blocksuser/figma-mcp",
       "version": "0.6.4",
       "transport": {
         "type": "stdio"

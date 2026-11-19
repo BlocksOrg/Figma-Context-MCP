@@ -1,12 +1,5 @@
 import path from "path";
 import { z } from "zod";
-import {
-  type AuthMode,
-  type ClientInfo,
-  captureDownloadImagesCall,
-  captureValidationReject,
-  type Transport,
-} from "~/telemetry/index.js";
 import { downloadFigmaImages as runDownloadFigmaImages } from "../../services/download-figma-images.js";
 import type { FigmaService } from "../../services/figma.js";
 import { type ResolveLocalPathFailureReason, resolveLocalPath } from "../../utils/local-path.js";
@@ -95,9 +88,6 @@ async function downloadFigmaImages(
   params: DownloadImagesParams,
   figmaService: FigmaService,
   imageDir: string | undefined,
-  transport: Transport,
-  authMode: AuthMode,
-  clientInfo: ClientInfo | undefined,
   extra: ToolExtra,
 ) {
   try {
@@ -110,22 +100,11 @@ async function downloadFigmaImages(
     const baseDir = imageDir ?? process.cwd();
     const resolution = resolveLocalPath(localPath, baseDir);
     if (!resolution.ok) {
-      // Path-traversal rejection happens after schema validation, so the SDK
-      // wrapper in mcp/index.ts never sees it. Capture it here as a validation
-      // reject so we can track how often LLMs trip over the localPath contract.
-      const details = rejectionDetails(resolution.reason, localPath, baseDir);
-      captureValidationReject(
-        {
-          tool: "download_figma_images",
-          field: "localPath",
-          rule: details.rule,
-          message: details.telemetryMessage,
-        },
-        { transport, authMode, clientInfo },
-      );
       return {
         isError: true,
-        content: [{ type: "text" as const, text: details.userMessage }],
+        content: [
+          { type: "text" as const, text: rejectionMessage(resolution.reason, localPath, baseDir) },
+        ],
       };
     }
     const resolvedPath = resolution.resolvedPath;
@@ -144,12 +123,6 @@ async function downloadFigmaImages(
         onDownloadComplete: () => {
           stopHeartbeat?.();
         },
-        onComplete: (outcome) =>
-          captureDownloadImagesCall(outcome, {
-            transport,
-            authMode,
-            clientInfo,
-          }),
       },
     );
 
@@ -207,24 +180,17 @@ function getDescription(imageDir?: string) {
   return `Download SVG and PNG images used in a Figma file based on the IDs of image or icon nodes. Images will be saved relative to the server's image directory: ${baseDir}`;
 }
 
-function rejectionDetails(
+function rejectionMessage(
   reason: ResolveLocalPathFailureReason,
   localPath: string,
   baseDir: string,
-): {
-  rule: ResolveLocalPathFailureReason;
-  userMessage: string;
-  telemetryMessage: string;
-} {
+): string {
   switch (reason) {
     case "drive_letter_on_posix":
-      return {
-        rule: reason,
-        telemetryMessage: `Drive-letter path on POSIX server: ${localPath}`,
-        userMessage:
-          `Invalid path: "${localPath}" starts with a Windows drive letter, but this server is running on POSIX where drive letters don't exist. ` +
-          `The server's image directory is "${baseDir}"; pass a path relative to it (e.g., "public/images").`,
-      };
+      return (
+        `Invalid path: "${localPath}" starts with a Windows drive letter, but this server is running on POSIX where drive letters don't exist. ` +
+        `The server's image directory is "${baseDir}"; pass a path relative to it (e.g., "public/images").`
+      );
     case "outside_image_dir": {
       // Leading-slash inputs used to be silently re-interpreted as relative
       // under the old path.join hack. They now reject; spell out the retry so
@@ -233,14 +199,11 @@ function rejectionDetails(
       const leadingSlashHint = /^[/\\]/.test(localPath)
         ? ` If you meant a directory inside the image directory, drop the leading slash (e.g., use "${localPath.replace(/^[/\\]+/, "")}").`
         : "";
-      return {
-        rule: reason,
-        telemetryMessage: `Path resolves outside allowed image directory: ${localPath}`,
-        userMessage:
-          `Invalid path: "${localPath}" resolves outside the allowed image directory. ` +
-          `The server's image directory is "${baseDir}". Provide a path relative to this directory (e.g., "public/images" or "assets/icons").` +
-          leadingSlashHint,
-      };
+      return (
+        `Invalid path: "${localPath}" resolves outside the allowed image directory. ` +
+        `The server's image directory is "${baseDir}". Provide a path relative to this directory (e.g., "public/images" or "assets/icons").` +
+        leadingSlashHint
+      );
     }
   }
 }

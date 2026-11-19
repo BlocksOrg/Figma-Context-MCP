@@ -1,14 +1,13 @@
 import { type Command, command } from "cleye";
 import {
+  createCredentialSource,
   loadEnvFile,
   parseOutputFormat,
-  resolveAuth,
   requireGlobalCredentials,
   UsageError,
 } from "~/config.js";
 import { FigmaService } from "~/services/figma.js";
 import { parseFigmaUrl } from "~/utils/figma-url.js";
-import { authMode, initTelemetry, captureGetFigmaDataCall, shutdown } from "~/telemetry/index.js";
 import { getFigmaData } from "~/services/get-figma-data.js";
 import type { OutputFormat } from "~/utils/serialize.js";
 
@@ -46,23 +45,21 @@ export const fetchCommand: Command = command(
         type: String,
         description: "Figma OAuth token",
       },
+      figmaOauthTokenFile: {
+        type: String,
+        description: "File holding a Figma OAuth token (default ~/.config/figma/.oauth_token)",
+      },
       env: {
         type: String,
         description: "Path to .env file",
       },
-      noTelemetry: {
-        type: Boolean,
-        description: "Disable usage telemetry",
-      },
     },
   },
   (argv) => {
-    run(argv.flags, argv._)
-      .catch((error) => {
-        console.error(error instanceof Error ? error.message : String(error));
-        process.exitCode = 1;
-      })
-      .finally(() => shutdown());
+    run(argv.flags, argv._).catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
   },
 );
 
@@ -75,8 +72,8 @@ async function run(
     format?: string;
     figmaApiKey?: string;
     figmaOauthToken?: string;
+    figmaOauthTokenFile?: string;
     env?: string;
-    noTelemetry?: boolean;
   },
   positionals: string[],
 ) {
@@ -100,21 +97,12 @@ async function run(
   }
 
   loadEnvFile(flags.env);
-  const auth = resolveAuth(flags);
+  const credentials = createCredentialSource(flags);
   // The fetch CLI has no per-request credential channel (unlike HTTP mode).
   // Fail fast so the user gets an actionable error instead of an HTTP-shaped
-  // one from `getAuthHeaders`.
-  requireGlobalCredentials(auth);
+  // one from the request path.
+  requireGlobalCredentials(credentials);
 
-  // Initialize telemetry only after input validation succeeds, so every
-  // captured event corresponds to an actual fetch attempt (not a usage error).
-  initTelemetry({
-    optOut: flags.noTelemetry,
-    immediateFlush: true,
-    redactFromErrors: [auth.figmaApiKey, auth.figmaOAuthToken],
-  });
-
-  const mode = authMode(auth);
   // The fetch CLI stays yaml-by-default (unlike the MCP server, which defaults
   // to tree): its output is piped into standard tooling (`> out.yaml`, `| jq`),
   // where tree's bespoke indented format isn't parseable. Tree's token-efficiency
@@ -123,13 +111,9 @@ async function run(
     parseOutputFormat(flags.format, "--format") ?? (flags.json ? "json" : "yaml");
 
   const result = await getFigmaData(
-    new FigmaService(auth),
+    new FigmaService(credentials),
     { fileKey, nodeId, depth: flags.depth },
     outputFormat,
-    {
-      onComplete: (outcome) =>
-        captureGetFigmaDataCall(outcome, { transport: "cli", authMode: mode }),
-    },
   );
   console.log(result.formatted);
 }

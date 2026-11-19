@@ -1,7 +1,8 @@
 /**
- * Structured metadata attached to thrown errors so telemetry can categorize
- * failures without parsing error messages. Producers tag errors via `tagError`;
- * consumers read merged meta from the error chain via `getErrorMeta`.
+ * Structured metadata attached to thrown errors so callers can branch on what
+ * failed (HTTP status, network code) without parsing error messages. Producers
+ * tag errors via `tagError`; consumers read merged meta from the error chain
+ * via `getErrorMeta`.
  *
  * Why a Symbol key: it never collides with caller-defined error fields and
  * doesn't show up in `Object.keys` or `JSON.stringify`, so attaching meta is
