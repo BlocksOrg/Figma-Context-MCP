@@ -9,13 +9,57 @@ import { downloadAndProcessImage, type ImageProcessingResult } from "~/utils/ima
 import { Logger, writeLogs } from "~/utils/logger.js";
 import { fetchJSON } from "~/utils/fetch-json.js";
 import { getErrorMeta } from "~/utils/error-meta.js";
-import { buildForbiddenMessage, buildRateLimitMessage } from "./errors/index.js";
+import {
+  buildForbiddenMessage,
+  buildRateLimitMessage,
+  buildUnauthorizedMessage,
+} from "./errors/index.js";
 
+/**
+ * A credential as used for one request. `source` names where it came from
+ * (a file path, an env var, a flag, "HTTP request header") for logs and error
+ * messages — never the token itself.
+ */
+export type FigmaCredential = {
+  kind: "oauth" | "pat";
+  token: string;
+  source: string;
+};
+
+/**
+ * Credentials are resolved per request, not per server: Figma keeps a single
+ * live access token per app per user, so when the platform that issued an
+ * OAuth token refreshes it, the copy this process read at startup dies. A
+ * source is re-evaluated on every call (and again after a 401) so a rotated
+ * token is picked up without a restart. Returning `undefined` means "nothing
+ * configured" and fails the request before it is sent.
+ */
+export type CredentialSource = () => FigmaCredential | undefined;
+
+/**
+ * Fixed credentials: HTTP per-request headers, the test suite, and library
+ * callers that already hold a token. `useOAuth` decides which header carries
+ * `figmaOAuthToken`; an empty token falls through to the API key.
+ */
 export type FigmaAuthOptions = {
   figmaApiKey: string;
   figmaOAuthToken: string;
   useOAuth: boolean;
 };
+
+export function staticCredentials(auth: FigmaAuthOptions, source = "static"): CredentialSource {
+  const credential: FigmaCredential | undefined =
+    auth.useOAuth && auth.figmaOAuthToken
+      ? { kind: "oauth", token: auth.figmaOAuthToken, source }
+      : auth.figmaApiKey
+        ? { kind: "pat", token: auth.figmaApiKey, source }
+        : undefined;
+  return () => credential;
+}
+
+export function toCredentialSource(auth: FigmaAuthOptions | CredentialSource): CredentialSource {
+  return typeof auth === "function" ? auth : staticCredentials(auth);
+}
 
 type SvgOptions = {
   outlineText: boolean;
@@ -24,31 +68,27 @@ type SvgOptions = {
 };
 
 export class FigmaService {
-  private readonly apiKey: string;
-  private readonly oauthToken: string;
-  private readonly useOAuth: boolean;
+  private readonly credentials: CredentialSource;
   private readonly baseUrl = "https://api.figma.com/v1";
 
-  constructor({ figmaApiKey, figmaOAuthToken, useOAuth }: FigmaAuthOptions) {
-    this.apiKey = figmaApiKey || "";
-    this.oauthToken = figmaOAuthToken || "";
-    this.useOAuth = !!useOAuth && !!this.oauthToken;
+  constructor(auth: FigmaAuthOptions | CredentialSource) {
+    this.credentials = toCredentialSource(auth);
   }
 
-  private getAuthHeaders(): Record<string, string> {
-    if (this.useOAuth) {
-      Logger.log("Using OAuth Bearer token for authentication");
-      return { Authorization: `Bearer ${this.oauthToken}` };
-    }
-
-    if (!this.apiKey) {
+  private requireCredential(): FigmaCredential {
+    const credential = this.credentials();
+    if (!credential) {
       throw new Error(
         "Figma API authentication is required. Configure FIGMA_API_KEY or FIGMA_OAUTH_TOKEN on the server, or send X-Figma-Token / Authorization: Bearer on the HTTP request.",
       );
     }
+    return credential;
+  }
 
-    Logger.log("Using Personal Access Token for authentication");
-    return { "X-Figma-Token": this.apiKey };
+  private authHeaders(credential: FigmaCredential): Record<string, string> {
+    return credential.kind === "oauth"
+      ? { Authorization: `Bearer ${credential.token}` }
+      : { "X-Figma-Token": credential.token };
   }
 
   /**
@@ -76,28 +116,63 @@ export class FigmaService {
    * continue to use `request` unchanged.
    */
   private async requestWithSize<T>(endpoint: string): Promise<{ data: T; rawSize: number }> {
+    const credential = this.requireCredential();
     try {
-      Logger.log(`Calling ${this.baseUrl}${endpoint}`);
-      const headers = this.getAuthHeaders();
-
-      return await fetchJSON<T & { status?: number }>(`${this.baseUrl}${endpoint}`, {
-        headers,
-        redactFromResponseBody: [this.apiKey, this.oauthToken],
-      });
+      return await this.send<T>(endpoint, credential);
     } catch (error) {
-      const meta = getErrorMeta(error);
-      if (meta.http_status === 429) {
-        throw new Error(buildRateLimitMessage(error), { cause: error });
+      if (getErrorMeta(error).http_status !== 401) {
+        throw this.describeFailure(endpoint, error);
       }
-      if (meta.http_status === 403) {
-        throw new Error(buildForbiddenMessage(endpoint, error), { cause: error });
+      // A 401 is "this token is dead", and the usual reason is that it was
+      // rotated: the issuer refreshed it (killing the old one — Figma keeps one
+      // live token per app per user) and the new value has since landed in the
+      // token file. Re-resolve; a changed token means exactly that race, so
+      // retry once with it. An unchanged token is genuinely revoked — no retry.
+      const fresh = this.credentials();
+      if (!fresh || fresh.token === credential.token) {
+        throw new Error(buildUnauthorizedMessage(endpoint, credential, error), { cause: error });
       }
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `Failed to make request to Figma API endpoint '${endpoint}': ${errorMessage}`,
-        { cause: error },
-      );
+      Logger.log(`Figma token from ${fresh.source} changed since the 401; retrying once`);
+      try {
+        return await this.send<T>(endpoint, fresh);
+      } catch (retryError) {
+        if (getErrorMeta(retryError).http_status === 401) {
+          throw new Error(
+            buildUnauthorizedMessage(endpoint, fresh, retryError, { retried: true }),
+            {
+              cause: retryError,
+            },
+          );
+        }
+        throw this.describeFailure(endpoint, retryError);
+      }
     }
+  }
+
+  private send<T>(
+    endpoint: string,
+    credential: FigmaCredential,
+  ): Promise<{ data: T; rawSize: number }> {
+    Logger.log(`Calling ${this.baseUrl}${endpoint} (${credential.kind} from ${credential.source})`);
+    return fetchJSON<T & { status?: number }>(`${this.baseUrl}${endpoint}`, {
+      headers: this.authHeaders(credential),
+      redactFromResponseBody: [credential.token],
+    });
+  }
+
+  private describeFailure(endpoint: string, error: unknown): Error {
+    const meta = getErrorMeta(error);
+    if (meta.http_status === 429) {
+      return new Error(buildRateLimitMessage(error), { cause: error });
+    }
+    if (meta.http_status === 403) {
+      return new Error(buildForbiddenMessage(endpoint, error), { cause: error });
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return new Error(
+      `Failed to make request to Figma API endpoint '${endpoint}': ${errorMessage}`,
+      { cause: error },
+    );
   }
 
   /**

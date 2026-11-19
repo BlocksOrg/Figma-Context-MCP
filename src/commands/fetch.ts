@@ -1,8 +1,8 @@
 import { type Command, command } from "cleye";
 import {
+  createCredentialSource,
   loadEnvFile,
   parseOutputFormat,
-  resolveAuth,
   requireGlobalCredentials,
   UsageError,
 } from "~/config.js";
@@ -45,6 +45,10 @@ export const fetchCommand: Command = command(
         type: String,
         description: "Figma OAuth token",
       },
+      figmaOauthTokenFile: {
+        type: String,
+        description: "File holding a Figma OAuth token (default ~/.config/figma/.oauth_token)",
+      },
       env: {
         type: String,
         description: "Path to .env file",
@@ -68,6 +72,7 @@ async function run(
     format?: string;
     figmaApiKey?: string;
     figmaOauthToken?: string;
+    figmaOauthTokenFile?: string;
     env?: string;
   },
   positionals: string[],
@@ -92,11 +97,11 @@ async function run(
   }
 
   loadEnvFile(flags.env);
-  const auth = resolveAuth(flags);
+  const credentials = createCredentialSource(flags);
   // The fetch CLI has no per-request credential channel (unlike HTTP mode).
   // Fail fast so the user gets an actionable error instead of an HTTP-shaped
-  // one from `getAuthHeaders`.
-  requireGlobalCredentials(auth);
+  // one from the request path.
+  requireGlobalCredentials(credentials);
 
   // The fetch CLI stays yaml-by-default (unlike the MCP server, which defaults
   // to tree): its output is piped into standard tooling (`> out.yaml`, `| jq`),
@@ -106,7 +111,7 @@ async function run(
     parseOutputFormat(flags.format, "--format") ?? (flags.json ? "json" : "yaml");
 
   const result = await getFigmaData(
-    new FigmaService(auth),
+    new FigmaService(credentials),
     { fileKey, nodeId, depth: flags.depth },
     outputFormat,
   );

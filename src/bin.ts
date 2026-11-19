@@ -17,6 +17,11 @@ const argv = cli({
       type: String,
       description: "Figma OAuth Bearer token",
     },
+    figmaOauthTokenFile: {
+      type: String,
+      description:
+        "File holding a Figma OAuth token, re-read on every request so a rotated token is picked up without a restart. Defaults to ~/.config/figma/.oauth_token; pass an empty string to disable.",
+    },
     env: {
       type: String,
       description: "Path to custom .env file to load environment variables from",

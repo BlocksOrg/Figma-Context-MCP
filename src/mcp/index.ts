@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { FigmaService, type FigmaAuthOptions } from "../services/figma.js";
+import { FigmaService, type CredentialSource, type FigmaAuthOptions } from "../services/figma.js";
 import { Logger } from "../utils/logger.js";
 import type { OutputFormat } from "~/utils/serialize.js";
 import { installFriendlyValidationErrors } from "./validation-errors.js";
@@ -28,7 +28,7 @@ export type CreateServerOptions = {
 };
 
 function createServer(
-  authOptions: FigmaAuthOptions,
+  authOptions: FigmaAuthOptions | CredentialSource,
   { transport, outputFormat = "tree", skipImageDownloads = false, imageDir }: CreateServerOptions,
 ) {
   const server = new McpServer(serverInfo);

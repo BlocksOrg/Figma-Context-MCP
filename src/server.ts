@@ -8,7 +8,12 @@ import { Logger } from "./utils/logger.js";
 import { hasProxyEnv, setProxyMode } from "./utils/proxy-env.js";
 import { createServer, type CreateServerOptions } from "./mcp/index.js";
 import { requireGlobalCredentials, type ServerConfig } from "./config.js";
-import type { FigmaAuthOptions } from "./services/figma.js";
+import {
+  staticCredentials,
+  toCredentialSource,
+  type CredentialSource,
+  type FigmaAuthOptions,
+} from "./services/figma.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
@@ -111,12 +116,13 @@ function registerShutdownHandlers(onShutdown: () => Promise<void>): void {
 export async function startHttpServer(
   host: string,
   port: number,
-  baseAuth: FigmaAuthOptions,
+  baseAuth: FigmaAuthOptions | CredentialSource,
   serverOptions: Omit<CreateServerOptions, "transport">,
 ): Promise<Server> {
   if (httpServer) {
     throw new Error("HTTP server is already running");
   }
+  const baseCredentials = toCredentialSource(baseAuth);
 
   const app = createMcpExpressApp({ host });
 
@@ -124,7 +130,7 @@ export async function startHttpServer(
     Logger.log("Received StreamableHTTP request");
     const requestKey = getRequestApiKey(req);
     const requestBearerToken = getRequestBearerToken(req);
-    const auth = resolveRequestAuth(baseAuth, requestKey, requestBearerToken);
+    const auth = resolveRequestAuth(baseCredentials, requestKey, requestBearerToken);
 
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     const mcpServer = createServer(auth, { ...serverOptions, transport: "http" });
@@ -183,25 +189,28 @@ export async function startHttpServer(
   });
 }
 
+/**
+ * Per-request header credentials are fixed for the life of that request (a
+ * 401 cannot be retried with anything fresher); without them the server
+ * default chain applies.
+ */
 function resolveRequestAuth(
-  baseAuth: FigmaAuthOptions,
+  baseAuth: CredentialSource,
   requestKey: string | undefined,
   requestBearerToken: string | undefined,
-): FigmaAuthOptions {
+): CredentialSource {
   if (requestKey) {
-    return {
-      figmaApiKey: requestKey,
-      figmaOAuthToken: "",
-      useOAuth: false,
-    };
+    return staticCredentials(
+      { figmaApiKey: requestKey, figmaOAuthToken: "", useOAuth: false },
+      "the X-Figma-Token request header",
+    );
   }
 
   if (requestBearerToken) {
-    return {
-      figmaApiKey: "",
-      figmaOAuthToken: requestBearerToken,
-      useOAuth: true,
-    };
+    return staticCredentials(
+      { figmaApiKey: "", figmaOAuthToken: requestBearerToken, useOAuth: true },
+      "the Authorization request header",
+    );
   }
 
   return baseAuth;

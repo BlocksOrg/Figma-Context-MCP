@@ -1,6 +1,8 @@
 import { config as loadEnv } from "dotenv";
+import { readFileSync } from "fs";
+import { homedir } from "os";
 import { resolve as resolvePath } from "path";
-import type { FigmaAuthOptions } from "./services/figma.js";
+import type { CredentialSource, FigmaCredential } from "./services/figma.js";
 import { VALID_OUTPUT_FORMATS, isOutputFormat, type OutputFormat } from "./utils/serialize.js";
 
 export type Source = "cli" | "env" | "default";
@@ -13,6 +15,7 @@ export interface Resolved<T> {
 export interface ServerFlags {
   figmaApiKey?: string;
   figmaOauthToken?: string;
+  figmaOauthTokenFile?: string;
   env?: string;
   port?: number;
   host?: string;
@@ -25,7 +28,7 @@ export interface ServerFlags {
 }
 
 export interface ServerConfig {
-  auth: FigmaAuthOptions;
+  auth: CredentialSource;
   port: number;
   host: string;
   proxy: string | undefined;
@@ -100,21 +103,61 @@ export function loadEnvFile(envPath: string | undefined, { implicit = true } = {
   return envFilePath;
 }
 
-export function resolveAuth(flags: {
+export const DEFAULT_OAUTH_TOKEN_FILE = "~/.config/figma/.oauth_token";
+
+export type AuthFlags = {
   figmaApiKey?: string;
   figmaOauthToken?: string;
-}): FigmaAuthOptions {
-  const figmaApiKey = resolve(flags.figmaApiKey, envStr("FIGMA_API_KEY"), "");
-  const figmaOauthToken = resolve(flags.figmaOauthToken, envStr("FIGMA_OAUTH_TOKEN"), "");
+  figmaOauthTokenFile?: string;
+};
 
-  const useOAuth = Boolean(figmaOauthToken.value);
-  const auth: FigmaAuthOptions = {
-    figmaApiKey: figmaApiKey.value,
-    figmaOAuthToken: figmaOauthToken.value,
-    useOAuth,
+/**
+ * Where the token file lives. The flag wins, then `FIGMA_OAUTH_TOKEN_FILE`,
+ * then the default path. Setting either to an empty string disables the file
+ * lookup entirely (for hosts that want env-only credentials).
+ */
+function resolveTokenFilePath(flag: string | undefined): string | undefined {
+  const raw = resolve(flag, process.env.FIGMA_OAUTH_TOKEN_FILE, DEFAULT_OAUTH_TOKEN_FILE).value;
+  if (raw === "") return undefined;
+  return raw.startsWith("~/") ? resolvePath(homedir(), raw.slice(2)) : resolvePath(raw);
+}
+
+function readTokenFile(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8").trim() || undefined;
+  } catch {
+    // Missing or unreadable is the normal case outside a Blocks sandbox.
+    return undefined;
+  }
+}
+
+/**
+ * The server-default credential chain, evaluated on EVERY call (see
+ * `CredentialSource`): token file → OAuth token (flag, then env) → personal
+ * access token (flag, then env). The file comes first because it is the one
+ * slot an external refresher keeps current; flags and env vars are the
+ * startup snapshot and cannot change under a running process.
+ */
+export function createCredentialSource(flags: AuthFlags): CredentialSource {
+  return (): FigmaCredential | undefined => {
+    const filePath = resolveTokenFilePath(flags.figmaOauthTokenFile);
+    const fileToken = filePath ? readTokenFile(filePath) : undefined;
+    if (fileToken) return { kind: "oauth", token: fileToken, source: filePath! };
+
+    if (flags.figmaOauthToken) {
+      return { kind: "oauth", token: flags.figmaOauthToken, source: "--figma-oauth-token" };
+    }
+    const envOauth = envStr("FIGMA_OAUTH_TOKEN");
+    if (envOauth) return { kind: "oauth", token: envOauth, source: "FIGMA_OAUTH_TOKEN" };
+
+    if (flags.figmaApiKey) {
+      return { kind: "pat", token: flags.figmaApiKey, source: "--figma-api-key" };
+    }
+    const envKey = envStr("FIGMA_API_KEY");
+    if (envKey) return { kind: "pat", token: envKey, source: "FIGMA_API_KEY" };
+
+    return undefined;
   };
-
-  return auth;
 }
 
 /**
@@ -138,10 +181,10 @@ export class UsageError extends Error {
  * something resolvable at startup or they'd just defer the failure to the
  * first tool call with a misleading "send X-Figma-Token" message.
  */
-export function requireGlobalCredentials(auth: FigmaAuthOptions): void {
-  if (auth.figmaApiKey || auth.figmaOAuthToken) return;
+export function requireGlobalCredentials(credentials: CredentialSource): void {
+  if (credentials()) return;
   throw new UsageError(
-    "Either FIGMA_API_KEY or FIGMA_OAUTH_TOKEN is required (via CLI argument or .env file)",
+    `Either FIGMA_API_KEY or FIGMA_OAUTH_TOKEN is required (via CLI argument, environment variable, .env file, or a token file at ${DEFAULT_OAUTH_TOKEN_FILE})`,
   );
 }
 
@@ -153,11 +196,16 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
   const envFileSource: Source = flags.env !== undefined ? "cli" : "default";
 
   // Auth
-  const auth = resolveAuth(flags);
+  const auth = createCredentialSource(flags);
 
   // Resolve config values: CLI flag → env var → default
   const figmaApiKey = resolve(flags.figmaApiKey, envStr("FIGMA_API_KEY"), "");
   const figmaOauthToken = resolve(flags.figmaOauthToken, envStr("FIGMA_OAUTH_TOKEN"), "");
+  const figmaOauthTokenFile = resolve(
+    flags.figmaOauthTokenFile,
+    envStr("FIGMA_OAUTH_TOKEN_FILE"),
+    DEFAULT_OAUTH_TOKEN_FILE,
+  );
   const port = resolve(flags.port, envInt("FRAMELINK_PORT", "PORT"), 3333);
   const host = resolve(flags.host, envStr("FRAMELINK_HOST"), "127.0.0.1");
   const skipImageDownloads = resolve(
@@ -188,6 +236,7 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
     envFile: envFileSource,
     figmaApiKey: figmaApiKey.source,
     figmaOauthToken: figmaOauthToken.source,
+    figmaOauthTokenFile: figmaOauthTokenFile.source,
     port: port.source,
     host: host.source,
     proxy: proxy.source,
@@ -199,15 +248,16 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
   if (!isStdioMode) {
     console.log("\nConfiguration:");
     console.log(`- ENV_FILE: ${envFilePath} (source: ${configSources.envFile})`);
-    if (auth.useOAuth) {
-      console.log(
-        `- FIGMA_OAUTH_TOKEN: ${maskApiKey(auth.figmaOAuthToken)} (source: ${configSources.figmaOauthToken})`,
-      );
+    // Startup snapshot only — the chain is re-evaluated on every request.
+    const credential = auth();
+    console.log(
+      `- FIGMA_OAUTH_TOKEN_FILE: ${figmaOauthTokenFile.value || "(disabled)"} (source: ${configSources.figmaOauthTokenFile})`,
+    );
+    if (credential?.kind === "oauth") {
+      console.log(`- OAuth token: ${maskApiKey(credential.token)} (source: ${credential.source})`);
       console.log("- Authentication Method: OAuth Bearer Token");
-    } else if (auth.figmaApiKey) {
-      console.log(
-        `- FIGMA_API_KEY: ${maskApiKey(auth.figmaApiKey)} (source: ${configSources.figmaApiKey})`,
-      );
+    } else if (credential) {
+      console.log(`- API key: ${maskApiKey(credential.token)} (source: ${credential.source})`);
       console.log("- Authentication Method: Personal Access Token (X-Figma-Token)");
     } else {
       console.log("- Authentication Method: Per-request X-Figma-Token header");

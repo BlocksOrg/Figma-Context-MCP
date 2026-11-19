@@ -86,6 +86,22 @@ Or you can set `FIGMA_API_KEY` and `PORT` in the `env` field.
 
 If you need more information on how to configure the Framelink MCP for Figma, see the [Framelink docs](https://www.framelink.ai/docs/quickstart?utm_source=github&utm_medium=referral&utm_campaign=readme).
 
+## Authentication
+
+The server resolves its Figma credential **on every request**, in this order:
+
+| Priority | Source                                                                                                                                                                                                             | Sent as                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| 1        | Token file: `--figma-oauth-token-file` / `FIGMA_OAUTH_TOKEN_FILE`, default `~/.config/figma/.oauth_token` (trimmed; a missing or empty file is skipped; set the variable to an empty string to disable the lookup) | `Authorization: Bearer` |
+| 2        | `--figma-oauth-token` / `FIGMA_OAUTH_TOKEN`                                                                                                                                                                        | `Authorization: Bearer` |
+| 3        | `--figma-api-key` / `FIGMA_API_KEY` (personal access token)                                                                                                                                                        | `X-Figma-Token`         |
+
+In HTTP mode a per-request `Authorization: Bearer …` or `X-Figma-Token` header overrides all of the above for that request.
+
+Why per request: Figma keeps **one live access token per app per user**, so whenever an OAuth token is refreshed the previous one stops working. A platform that refreshes tokens for you (Blocks does, writing the current token to the token file) therefore invalidates whatever a long-running server read at startup. Re-reading the file per request means a rotated token is used without a restart, and on a `401` the server re-resolves the credential once more and retries once if it changed. If the token is unchanged, or the retry is rejected too, the tool returns an error that says so and tells the agent to fetch the current token (the `get_new_figma_token` tool inside Blocks) or wait up to a minute for the refreshed one to land.
+
+In stdio mode the server does not read a `.env` file from its working directory (an MCP client spawns it with an arbitrary cwd); pass `--env <path>` to load one explicitly. HTTP mode and the `fetch` subcommand still load `./.env`.
+
 ## Star History
 
 <a href="https://star-history.com/#GLips/Figma-Context-MCP"><img src="https://api.star-history.com/svg?repos=GLips/Figma-Context-MCP&type=Date" alt="Star History Chart" width="600" /></a>
