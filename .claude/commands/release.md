@@ -5,7 +5,7 @@ Review and publish a new release.
 ## Steps
 
 1. **Check for a release-please PR:**
-   Run `gh pr list --repo GLips/Figma-Context-MCP --label "autorelease: pending" --json number,title,url` to find the open release PR.
+   Run `gh pr list --repo BlocksOrg/Figma-Context-MCP --label "autorelease: pending" --json number,title,url` to find the open release PR.
 
    If no release PR exists, inform the user: "No pending release PR. Release-please creates one automatically when conventional commits (`fix:`, `feat:`) land on `main`."
 
@@ -24,7 +24,7 @@ Review and publish a new release.
    - **Cancel** — Stop without merging
 
 4. **Merge the release PR:**
-   Run `gh pr merge <number> --rebase --repo GLips/Figma-Context-MCP` (or merge via the GitHub UI).
+   Run `gh pr merge <number> --rebase --repo BlocksOrg/Figma-Context-MCP` (or merge via the GitHub UI).
 
    **Use rebase, not squash.** Feature PRs are squash-merged (so each conventional-commit title,
    with its `(#NNN)`, feeds the changelog), but the release PR is the single `chore(main): release
@@ -34,7 +34,7 @@ X.Y.Z` commit release-please authored. Rebase replays it onto `main` verbatim �
    no PR suffix). Merging through the UI does the same thing.
 
 5. **Verify:**
-   Run `gh run list --repo GLips/Figma-Context-MCP --limit 1` to confirm the Release workflow triggered.
+   Run `gh run list --repo BlocksOrg/Figma-Context-MCP --limit 1` to confirm the Release workflow triggered.
    Report the workflow run URL so the user can monitor npm publish.
 
    The Release workflow also bumps `server.json` and publishes to npm (OIDC) and the MCP registry —

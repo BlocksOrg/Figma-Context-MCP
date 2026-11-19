@@ -37,7 +37,7 @@ This focused approach ensures:
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/GLips/Figma-Context-MCP.git
+   git clone https://github.com/BlocksOrg/Figma-Context-MCP.git
    cd Figma-Context-MCP
    ```
 

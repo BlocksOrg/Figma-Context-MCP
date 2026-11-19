@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   release-please:
-    if: ${{ github.repository_owner == 'GLips' }}
+    if: ${{ github.repository_owner == 'BlocksOrg' }}
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -46,8 +46,9 @@ jobs:
         run: pnpm build
         if: ${{ steps.release.outputs.release_created }}
 
+      # --access public: scoped packages default to restricted on first publish.
       - name: Publish to npm
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --access public
         env:
           NODE_ENV: production
         if: ${{ steps.release.outputs.release_created }}
@@ -58,13 +59,17 @@ jobs:
           jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp && mv server.tmp server.json
         if: ${{ steps.release.outputs.release_created }}
 
+      # The registry listing is a nice-to-have for the fork (Blocks consumes the
+      # npm package directly); never let it fail a release that already published.
       - name: Install mcp-publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
         if: ${{ steps.release.outputs.release_created }}
+        continue-on-error: true
 
       - name: Publish to MCP Registry
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
         if: ${{ steps.release.outputs.release_created }}
+        continue-on-error: true
