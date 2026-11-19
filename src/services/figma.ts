@@ -1,8 +1,14 @@
 import type {
-  GetImagesResponse,
-  GetFileResponse,
+  GetCommentsResponse,
+  GetDevResourcesResponse,
+  GetFileComponentsResponse,
   GetFileNodesResponse,
+  GetFileResponse,
+  GetFileStylesResponse,
+  GetFileVersionsResponse,
   GetImageFillsResponse,
+  GetImagesResponse,
+  GetMeResponse,
   Transform,
 } from "@figma/rest-api-spec";
 import { downloadAndProcessImage, type ImageProcessingResult } from "~/utils/image-processing.js";
@@ -173,6 +179,32 @@ export class FigmaService {
       `Failed to make request to Figma API endpoint '${endpoint}': ${errorMessage}`,
       { cause: error },
     );
+  }
+
+  /** The account behind the current credential (`GET /v1/me`). */
+  getMe(): Promise<GetMeResponse> {
+    return this.request<GetMeResponse>("/me");
+  }
+
+  getComments(fileKey: string): Promise<GetCommentsResponse> {
+    return this.request<GetCommentsResponse>(`/files/${fileKey}/comments`);
+  }
+
+  getFileVersions(fileKey: string): Promise<GetFileVersionsResponse> {
+    return this.request<GetFileVersionsResponse>(`/files/${fileKey}/versions`);
+  }
+
+  getDevResources(fileKey: string, nodeIds: string[] = []): Promise<GetDevResourcesResponse> {
+    const query = nodeIds.length ? `?node_ids=${encodeURIComponent(nodeIds.join(","))}` : "";
+    return this.request<GetDevResourcesResponse>(`/files/${fileKey}/dev_resources${query}`);
+  }
+
+  getPublishedComponents(fileKey: string): Promise<GetFileComponentsResponse> {
+    return this.request<GetFileComponentsResponse>(`/files/${fileKey}/components`);
+  }
+
+  getPublishedStyles(fileKey: string): Promise<GetFileStylesResponse> {
+    return this.request<GetFileStylesResponse>(`/files/${fileKey}/styles`);
   }
 
   /**

@@ -7,6 +7,7 @@ import type { ToolExtra } from "./progress.js";
 import {
   downloadFigmaImagesTool,
   getFigmaDataTool,
+  simpleTools,
   type DownloadImagesParams,
   type GetFigmaDataParams,
 } from "./tools/index.js";
@@ -76,6 +77,19 @@ function registerTools(
       },
       (params: DownloadImagesParams, extra: ToolExtra) =>
         downloadFigmaImagesTool.handler(params, figmaService, options.imageDir, extra),
+    );
+  }
+
+  for (const tool of simpleTools) {
+    server.registerTool(
+      tool.name,
+      {
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.parametersSchema,
+        annotations: { readOnlyHint: true },
+      },
+      (params) => tool.handler(params, figmaService),
     );
   }
 }

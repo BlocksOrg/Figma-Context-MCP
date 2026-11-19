@@ -40,6 +40,8 @@ git remote add upstream https://github.com/GLips/Figma-Context-MCP.git
 git fetch upstream && git merge upstream/main
 ```
 
+The fork also adds five small read-only tools over the Figma REST API, next to upstream's `get_figma_data` and `download_figma_images`: `whoami`, `get_figma_comments`, `get_figma_file_versions`, `get_figma_dev_resources` and `get_figma_components_and_styles`. Each returns a lean YAML projection of the response; there are no write tools.
+
 Install for an MCP client: `npx -y @blocksuser/figma-mcp --stdio`. Issues with the fork go to [BlocksOrg/Figma-Context-MCP](https://github.com/BlocksOrg/Figma-Context-MCP/issues); upstream's docs at [framelink.ai](https://www.framelink.ai/docs) still describe the tools.
 
 Give [Cursor](https://cursor.sh/) and other AI-powered coding tools access to your Figma files with this [Model Context Protocol](https://modelcontextprotocol.io/introduction) server.
