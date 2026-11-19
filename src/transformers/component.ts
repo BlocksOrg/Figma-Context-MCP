@@ -1,4 +1,9 @@
-import type { Component, ComponentSet } from "@figma/rest-api-spec";
+import type {
+  Component,
+  ComponentProperty,
+  ComponentPropertyDefinition,
+  ComponentSet,
+} from "@figma/rest-api-spec";
 
 export interface SimplifiedPropertyDefinition {
   type: string;
@@ -31,19 +36,38 @@ export function stripPropertyNameSuffix(name: string): string {
 }
 
 /**
+ * Only BOOLEAN and TEXT properties carry a value an LLM can act on. VARIANT and
+ * INSTANCE_SWAP values are component keys / variant names already visible on
+ * the instance, and a SLOT value is a `SlotContentId` — an internal node guid
+ * whose content is the instance's own children in the simplified tree — so
+ * emitting it would spend tokens on something unresolvable. Narrowing on the
+ * type (rather than on `typeof value`) is what keeps the guid object out of the
+ * output: the spec types `value` / `defaultValue` as
+ * `boolean | string | SlotContentId` across all kinds.
+ */
+function scalarValue(
+  prop: ComponentProperty | ComponentPropertyDefinition,
+): boolean | string | undefined {
+  if (prop.type !== "BOOLEAN" && prop.type !== "TEXT") return undefined;
+  const value = "value" in prop ? prop.value : prop.defaultValue;
+  return typeof value === "boolean" || typeof value === "string" ? value : undefined;
+}
+
+/**
  * Simplify componentPropertyDefinitions from the raw Figma format to a flat
- * Record of property name → default value. Only extracts BOOLEAN and TEXT
- * properties for Phase 1.
+ * Record of property name → default value. Only BOOLEAN and TEXT properties
+ * are kept (see `scalarValue`).
  */
 export function simplifyPropertyDefinitions(
-  definitions: Record<string, { type: string; defaultValue: boolean | string }>,
+  definitions: Record<string, ComponentPropertyDefinition>,
 ): Record<string, SimplifiedPropertyDefinition> {
   const result: Record<string, SimplifiedPropertyDefinition> = {};
   for (const [name, def] of Object.entries(definitions)) {
-    if (def.type === "BOOLEAN" || def.type === "TEXT") {
+    const defaultValue = scalarValue(def);
+    if (defaultValue !== undefined) {
       result[stripPropertyNameSuffix(name)] = {
         type: def.type.toLowerCase(),
-        defaultValue: def.defaultValue,
+        defaultValue,
       };
     }
   }
@@ -71,15 +95,17 @@ export function simplifyPropertyReferences(
 
 /**
  * Simplify instance componentProperties from the verbose Figma format to a flat
- * Record of property name → value. Only extracts BOOLEAN and TEXT properties for Phase 1.
+ * Record of property name → value. Only BOOLEAN and TEXT properties are kept
+ * (see `scalarValue`).
  */
 export function simplifyComponentProperties(
-  properties: Record<string, { type: string; value: boolean | string }>,
+  properties: Record<string, ComponentProperty>,
 ): Record<string, boolean | string> {
   const result: Record<string, boolean | string> = {};
   for (const [name, prop] of Object.entries(properties)) {
-    if (prop.type === "BOOLEAN" || prop.type === "TEXT") {
-      result[stripPropertyNameSuffix(name)] = prop.value;
+    const value = scalarValue(prop);
+    if (value !== undefined) {
+      result[stripPropertyNameSuffix(name)] = value;
     }
   }
   return result;

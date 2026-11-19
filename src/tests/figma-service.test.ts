@@ -77,7 +77,7 @@ describe("FigmaService request/error path", () => {
 
       await service.getRawNode("ABC", "1:2");
 
-      expect(firstRequestUrl()).toContain("/files/ABC/nodes?ids=1:2");
+      expect(firstRequestUrl()).toContain("/files/ABC/nodes?ids=1:2&geometry=paths");
     });
 
     it("appends depth to the nodes endpoint when provided", async () => {
@@ -89,7 +89,7 @@ describe("FigmaService request/error path", () => {
 
       await service.getRawNode("ABC", "1:2", 3);
 
-      expect(firstRequestUrl()).toContain("/files/ABC/nodes?ids=1:2&depth=3");
+      expect(firstRequestUrl()).toContain("/files/ABC/nodes?ids=1:2&geometry=paths&depth=3");
     });
 
     it("builds the file endpoint for getRawFile", async () => {
@@ -101,7 +101,7 @@ describe("FigmaService request/error path", () => {
 
       await service.getRawFile("ABC");
 
-      expect(firstRequestUrl()).toMatch(/\/files\/ABC$/);
+      expect(firstRequestUrl()).toMatch(/\/files\/ABC\?geometry=paths$/);
     });
 
     it("appends depth to the file endpoint when provided", async () => {
@@ -113,7 +113,7 @@ describe("FigmaService request/error path", () => {
 
       await service.getRawFile("ABC", 2);
 
-      expect(firstRequestUrl()).toContain("/files/ABC?depth=2");
+      expect(firstRequestUrl()).toContain("/files/ABC?geometry=paths&depth=2");
     });
   });
 
