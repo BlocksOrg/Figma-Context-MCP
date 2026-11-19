@@ -11,7 +11,6 @@ import { requireGlobalCredentials, type ServerConfig } from "./config.js";
 import type { FigmaAuthOptions } from "./services/figma.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ErrorCode } from "@modelcontextprotocol/sdk/types.js";
-import * as telemetry from "./telemetry/index.js";
 
 let httpServer: Server | null = null;
 
@@ -27,8 +26,7 @@ const activeConnections = new Set<ActiveConnection>();
 export async function startServer(config: ServerConfig): Promise<void> {
   // Stdio has no per-request credential channel, so the server is unusable
   // without something resolved at startup. Fail fast BEFORE any side effects
-  // (proxy install, telemetry init) — preserves the pre-PR behavior where
-  // resolveAuth() exited early during config resolution.
+  // (proxy install).
   if (config.isStdioMode) {
     requireGlobalCredentials(config.auth);
   }
@@ -48,20 +46,6 @@ export async function startServer(config: ServerConfig): Promise<void> {
   } else if (!config.proxy && hasProxyEnv()) {
     setGlobalDispatcher(new EnvHttpProxyAgent());
     setProxyMode("env");
-  }
-
-  const telemetryEnabled = telemetry.initTelemetry({
-    optOut: config.noTelemetry,
-    redactFromErrors: [config.auth.figmaApiKey, config.auth.figmaOAuthToken],
-  });
-
-  if (telemetryEnabled) {
-    // stderr (not Logger.log) because in HTTP mode Logger.log writes to stdout,
-    // and in stdio mode stdout is reserved for MCP protocol messages. stderr
-    // is safe in both modes.
-    process.stderr.write(
-      "Usage telemetry enabled. Disable: FRAMELINK_TELEMETRY=off or DO_NOT_TRACK=1\n",
-    );
   }
 
   const serverOptions = {
@@ -100,9 +84,9 @@ export async function startServer(config: ServerConfig): Promise<void> {
 }
 
 /**
- * Register SIGINT + SIGTERM handlers that run mode-specific cleanup and then
- * flush telemetry before exiting. MCP hosts commonly send SIGTERM, so both
- * signals must be handled in both transport modes.
+ * Register SIGINT + SIGTERM handlers that run mode-specific cleanup and exit.
+ * MCP hosts commonly send SIGTERM, so both signals must be handled in both
+ * transport modes.
  *
  * Idempotent: if both signals fire (or a signal fires twice) the second
  * invocation is ignored so we never double-shutdown.
@@ -112,13 +96,11 @@ function registerShutdownHandlers(onShutdown: () => Promise<void>): void {
   const handle = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    // onShutdown may throw (e.g. stopHttpServer failures); telemetry.shutdown
-    // swallows its own errors (see src/telemetry/client.ts). Use try/finally
-    // so process.exit(0) always runs regardless of onShutdown failure.
+    // onShutdown may throw (e.g. stopHttpServer failures); try/finally so
+    // process.exit(0) always runs regardless.
     try {
       await onShutdown();
     } finally {
-      await telemetry.shutdown();
       process.exit(0);
     }
   };
@@ -143,26 +125,19 @@ export async function startHttpServer(
     const requestKey = getRequestApiKey(req);
     const requestBearerToken = getRequestBearerToken(req);
     const auth = resolveRequestAuth(baseAuth, requestKey, requestBearerToken);
-    const requestSecrets = [requestKey, requestBearerToken].filter(
-      (secret): secret is string => !!secret,
-    );
 
-    // Request-level credentials are not known to telemetry's init-time
-    // redaction list, so make them available only for this request scope.
-    await telemetry.withRequestSecrets(requestSecrets, async () => {
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const mcpServer = createServer(auth, { ...serverOptions, transport: "http" });
-      const conn: ActiveConnection = { transport, server: mcpServer };
-      activeConnections.add(conn);
-      res.on("close", () => {
-        activeConnections.delete(conn);
-        transport.close();
-        mcpServer.close();
-      });
-      await mcpServer.connect(transport);
-      await transport.handleRequest(req, res, req.body);
-      Logger.log("StreamableHTTP request handled");
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const mcpServer = createServer(auth, { ...serverOptions, transport: "http" });
+    const conn: ActiveConnection = { transport, server: mcpServer };
+    activeConnections.add(conn);
+    res.on("close", () => {
+      activeConnections.delete(conn);
+      transport.close();
+      mcpServer.close();
     });
+    await mcpServer.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+    Logger.log("StreamableHTTP request handled");
   };
 
   const handleMethodNotAllowed = (_req: Request, res: Response) => {

@@ -8,7 +8,6 @@ import {
 } from "~/config.js";
 import { FigmaService } from "~/services/figma.js";
 import { parseFigmaUrl } from "~/utils/figma-url.js";
-import { authMode, initTelemetry, captureGetFigmaDataCall, shutdown } from "~/telemetry/index.js";
 import { getFigmaData } from "~/services/get-figma-data.js";
 import type { OutputFormat } from "~/utils/serialize.js";
 
@@ -50,19 +49,13 @@ export const fetchCommand: Command = command(
         type: String,
         description: "Path to .env file",
       },
-      noTelemetry: {
-        type: Boolean,
-        description: "Disable usage telemetry",
-      },
     },
   },
   (argv) => {
-    run(argv.flags, argv._)
-      .catch((error) => {
-        console.error(error instanceof Error ? error.message : String(error));
-        process.exitCode = 1;
-      })
-      .finally(() => shutdown());
+    run(argv.flags, argv._).catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
   },
 );
 
@@ -76,7 +69,6 @@ async function run(
     figmaApiKey?: string;
     figmaOauthToken?: string;
     env?: string;
-    noTelemetry?: boolean;
   },
   positionals: string[],
 ) {
@@ -106,15 +98,6 @@ async function run(
   // one from `getAuthHeaders`.
   requireGlobalCredentials(auth);
 
-  // Initialize telemetry only after input validation succeeds, so every
-  // captured event corresponds to an actual fetch attempt (not a usage error).
-  initTelemetry({
-    optOut: flags.noTelemetry,
-    immediateFlush: true,
-    redactFromErrors: [auth.figmaApiKey, auth.figmaOAuthToken],
-  });
-
-  const mode = authMode(auth);
   // The fetch CLI stays yaml-by-default (unlike the MCP server, which defaults
   // to tree): its output is piped into standard tooling (`> out.yaml`, `| jq`),
   // where tree's bespoke indented format isn't parseable. Tree's token-efficiency
@@ -126,10 +109,6 @@ async function run(
     new FigmaService(auth),
     { fileKey, nodeId, depth: flags.depth },
     outputFormat,
-    {
-      onComplete: (outcome) =>
-        captureGetFigmaDataCall(outcome, { transport: "cli", authMode: mode }),
-    },
   );
   console.log(result.formatted);
 }

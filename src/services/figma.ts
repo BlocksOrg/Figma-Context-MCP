@@ -71,8 +71,8 @@ export class FigmaService {
 
   /**
    * Like `request`, but also surfaces the raw response body size so callers
-   * can record it for telemetry. Only used by endpoints whose payload size
-   * we care about (`getRawFile` / `getRawNode`); image-fetching endpoints
+   * can report it in metrics. Only used by endpoints whose payload size we
+   * care about (`getRawFile` / `getRawNode`); image-fetching endpoints
    * continue to use `request` unchanged.
    */
   private async requestWithSize<T>(endpoint: string): Promise<{ data: T; rawSize: number }> {
@@ -304,7 +304,7 @@ export class FigmaService {
    * Get raw Figma API response for a file (for use with flexible extractors).
    *
    * Returns the parsed body alongside the raw body size in bytes so callers
-   * can record payload size in telemetry.
+   * can report payload size in metrics.
    */
   async getRawFile(
     fileKey: string,
@@ -323,7 +323,7 @@ export class FigmaService {
    * Get raw Figma API response for specific nodes (for use with flexible extractors).
    *
    * Returns the parsed body alongside the raw body size in bytes so callers
-   * can record payload size in telemetry.
+   * can report payload size in metrics.
    */
   async getRawNode(
     fileKey: string,

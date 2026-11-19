@@ -1,9 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FigmaService, type FigmaAuthOptions } from "../services/figma.js";
 import { Logger } from "../utils/logger.js";
-import { authMode, type AuthMode, type ClientInfo, type Transport } from "~/telemetry/index.js";
 import type { OutputFormat } from "~/utils/serialize.js";
-import { installValidationRejectCapture } from "./validation-capture.js";
+import { installFriendlyValidationErrors } from "./validation-errors.js";
 import type { ToolExtra } from "./progress.js";
 import {
   downloadFigmaImagesTool,
@@ -19,7 +18,7 @@ const serverInfo = {
     "Gives AI coding agents access to Figma design data, providing layout, styling, and content information for implementing designs.",
 };
 
-type ServerTransport = Extract<Transport, "stdio" | "http">;
+type ServerTransport = "stdio" | "http";
 
 export type CreateServerOptions = {
   transport: ServerTransport;
@@ -34,29 +33,9 @@ function createServer(
 ) {
   const server = new McpServer(serverInfo);
   const figmaService = new FigmaService(authOptions);
-  const mode = authMode(authOptions);
 
-  const getClientInfo = (): ClientInfo | undefined => {
-    const info = server.server.getClientVersion();
-    if (!info) return undefined;
-    return { name: info.name, version: info.version };
-  };
-
-  registerTools(server, figmaService, {
-    transport,
-    authMode: mode,
-    outputFormat,
-    skipImageDownloads,
-    imageDir,
-    getClientInfo,
-  });
-
-  installValidationRejectCapture(server, {
-    transport,
-    authMode: mode,
-    outputFormat,
-    getClientInfo,
-  });
+  registerTools(server, figmaService, { outputFormat, skipImageDownloads, imageDir });
+  installFriendlyValidationErrors(server);
 
   Logger.isHTTP = transport !== "stdio";
 
@@ -64,12 +43,9 @@ function createServer(
 }
 
 type RegisterToolsOptions = {
-  transport: ServerTransport;
-  authMode: AuthMode;
   outputFormat: OutputFormat;
   skipImageDownloads: boolean;
   imageDir?: string;
-  getClientInfo: () => ClientInfo | undefined;
 };
 
 function registerTools(
@@ -86,15 +62,7 @@ function registerTools(
       annotations: { readOnlyHint: true },
     },
     (params: GetFigmaDataParams, extra: ToolExtra) =>
-      getFigmaDataTool.handler(
-        params,
-        figmaService,
-        options.outputFormat,
-        options.transport,
-        options.authMode,
-        options.getClientInfo(),
-        extra,
-      ),
+      getFigmaDataTool.handler(params, figmaService, options.outputFormat, extra),
   );
 
   if (!options.skipImageDownloads) {
@@ -107,15 +75,7 @@ function registerTools(
         annotations: { openWorldHint: true },
       },
       (params: DownloadImagesParams, extra: ToolExtra) =>
-        downloadFigmaImagesTool.handler(
-          params,
-          figmaService,
-          options.imageDir,
-          options.transport,
-          options.authMode,
-          options.getClientInfo(),
-          extra,
-        ),
+        downloadFigmaImagesTool.handler(params, figmaService, options.imageDir, extra),
     );
   }
 }

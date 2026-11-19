@@ -2,12 +2,6 @@ import { z } from "zod";
 import { FigmaService } from "~/services/figma.js";
 import { Logger } from "~/utils/logger.js";
 import { sendProgress, startProgressHeartbeat, type ToolExtra } from "~/mcp/progress.js";
-import {
-  captureGetFigmaDataCall,
-  type AuthMode,
-  type ClientInfo,
-  type Transport,
-} from "~/telemetry/index.js";
 import { getFigmaData as runGetFigmaData } from "~/services/get-figma-data.js";
 import type { OutputFormat } from "~/utils/serialize.js";
 
@@ -43,9 +37,6 @@ async function getFigmaData(
   params: GetFigmaDataParams,
   figmaService: FigmaService,
   outputFormat: OutputFormat,
-  transport: Transport,
-  authMode: AuthMode,
-  clientInfo: ClientInfo | undefined,
   extra: ToolExtra,
 ) {
   try {
@@ -85,8 +76,6 @@ async function getFigmaData(
       onSerializeStart: async () => {
         await sendProgress(extra, 2, 3, "Simplified design, serializing response");
       },
-      onComplete: (outcome) =>
-        captureGetFigmaDataCall(outcome, { transport, authMode, clientInfo }),
     });
 
     Logger.log(`Successfully extracted data: ${result.metrics.simplifiedNodeCount} nodes`);

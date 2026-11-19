@@ -34,23 +34,9 @@ export type DownloadFigmaImagesResult = {
   successCount: number;
 };
 
-export type DownloadImagesOutcome = {
-  input: DownloadFigmaImagesInput;
-  durationMs: number;
-  imageCount: number;
-  successCount?: number;
-  error?: unknown;
-};
-
 export type DownloadFigmaImagesHooks = {
   onDownloadStart?: (downloadCount: number) => void | Promise<void>;
   onDownloadComplete?: () => void;
-  /**
-   * Fires exactly once per call, after the pipeline completes (success or
-   * failure). Observer errors are swallowed silently — a broken observer
-   * must never break the pipeline.
-   */
-  onComplete?: (outcome: DownloadImagesOutcome) => void;
 };
 
 /**
@@ -67,116 +53,92 @@ export async function downloadFigmaImages(
   input: DownloadFigmaImagesInput,
   hooks: DownloadFigmaImagesHooks = {},
 ): Promise<DownloadFigmaImagesResult> {
-  const startedAt = Date.now();
-  const imageCount = input.nodes.length;
-  let successCount: number | undefined;
-  let caughtError: unknown;
+  const { fileKey, nodes, localPath, pngScale } = input;
 
-  try {
-    const { fileKey, nodes, localPath, pngScale } = input;
+  // Resolve the set of unique downloads and track which requested
+  // filenames each one satisfies (so the caller can render aliases).
+  const downloadItems: Array<{
+    fileName: string;
+    needsCropping: boolean;
+    cropTransform?: Transform;
+    requiresImageDimensions: boolean;
+    imageRef?: string;
+    gifRef?: string;
+    nodeId?: string;
+  }> = [];
+  const downloadToRequests = new Map<number, string[]>();
+  const seenDownloads = new Map<string, number>();
 
-    // Resolve the set of unique downloads and track which requested
-    // filenames each one satisfies (so the caller can render aliases).
-    const downloadItems: Array<{
-      fileName: string;
-      needsCropping: boolean;
-      cropTransform?: Transform;
-      requiresImageDimensions: boolean;
-      imageRef?: string;
-      gifRef?: string;
-      nodeId?: string;
-    }> = [];
-    const downloadToRequests = new Map<number, string[]>();
-    const seenDownloads = new Map<string, number>();
+  for (const rawNode of nodes) {
+    const { nodeId: rawNodeId, ...node } = rawNode;
 
-    for (const rawNode of nodes) {
-      const { nodeId: rawNodeId, ...node } = rawNode;
+    // Replace - with : in nodeId for our query — Figma API expects :.
+    const nodeId = rawNodeId?.replace(/-/g, ":");
 
-      // Replace - with : in nodeId for our query — Figma API expects :.
-      const nodeId = rawNodeId?.replace(/-/g, ":");
+    let finalFileName = node.fileName;
+    if (node.filenameSuffix && !finalFileName.includes(node.filenameSuffix)) {
+      const ext = finalFileName.split(".").pop();
+      const nameWithoutExt = finalFileName.substring(0, finalFileName.lastIndexOf("."));
+      finalFileName = `${nameWithoutExt}-${node.filenameSuffix}.${ext}`;
+    }
 
-      let finalFileName = node.fileName;
-      if (node.filenameSuffix && !finalFileName.includes(node.filenameSuffix)) {
-        const ext = finalFileName.split(".").pop();
-        const nameWithoutExt = finalFileName.substring(0, finalFileName.lastIndexOf("."));
-        finalFileName = `${nameWithoutExt}-${node.filenameSuffix}.${ext}`;
-      }
+    const downloadItem = {
+      fileName: finalFileName,
+      needsCropping: node.needsCropping || false,
+      cropTransform: node.cropTransform,
+      requiresImageDimensions: node.requiresImageDimensions || false,
+    };
 
-      const downloadItem = {
-        fileName: finalFileName,
-        needsCropping: node.needsCropping || false,
-        cropTransform: node.cropTransform,
-        requiresImageDimensions: node.requiresImageDimensions || false,
-      };
+    if (node.gifRef) {
+      // GIF fills are always unique downloads (animated, no dedup needed).
+      const downloadIndex = downloadItems.length;
+      downloadItems.push({ ...downloadItem, gifRef: node.gifRef });
+      downloadToRequests.set(downloadIndex, [finalFileName]);
+    } else if (node.imageRef) {
+      const uniqueKey = `${node.imageRef}-${node.filenameSuffix || "none"}`;
 
-      if (node.gifRef) {
-        // GIF fills are always unique downloads (animated, no dedup needed).
-        const downloadIndex = downloadItems.length;
-        downloadItems.push({ ...downloadItem, gifRef: node.gifRef });
-        downloadToRequests.set(downloadIndex, [finalFileName]);
-      } else if (node.imageRef) {
-        const uniqueKey = `${node.imageRef}-${node.filenameSuffix || "none"}`;
+      if (!node.filenameSuffix && seenDownloads.has(uniqueKey)) {
+        const downloadIndex = seenDownloads.get(uniqueKey)!;
+        const requests = downloadToRequests.get(downloadIndex)!;
+        if (!requests.includes(finalFileName)) {
+          requests.push(finalFileName);
+        }
 
-        if (!node.filenameSuffix && seenDownloads.has(uniqueKey)) {
-          const downloadIndex = seenDownloads.get(uniqueKey)!;
-          const requests = downloadToRequests.get(downloadIndex)!;
-          if (!requests.includes(finalFileName)) {
-            requests.push(finalFileName);
-          }
-
-          if (downloadItem.requiresImageDimensions) {
-            downloadItems[downloadIndex].requiresImageDimensions = true;
-          }
-        } else {
-          const downloadIndex = downloadItems.length;
-          downloadItems.push({ ...downloadItem, imageRef: node.imageRef });
-          downloadToRequests.set(downloadIndex, [finalFileName]);
-          seenDownloads.set(uniqueKey, downloadIndex);
+        if (downloadItem.requiresImageDimensions) {
+          downloadItems[downloadIndex].requiresImageDimensions = true;
         }
       } else {
-        // Rendered nodes are always unique.
         const downloadIndex = downloadItems.length;
-        downloadItems.push({ ...downloadItem, nodeId });
+        downloadItems.push({ ...downloadItem, imageRef: node.imageRef });
         downloadToRequests.set(downloadIndex, [finalFileName]);
+        seenDownloads.set(uniqueKey, downloadIndex);
       }
-    }
-
-    await hooks.onDownloadStart?.(downloadItems.length);
-    let allDownloads: ImageProcessingResult[];
-    try {
-      allDownloads = await figmaService.downloadImages(fileKey, localPath, downloadItems, {
-        pngScale,
-      });
-    } catch (error) {
-      tagError(error, { phase: "download" });
-    } finally {
-      hooks.onDownloadComplete?.();
-    }
-
-    successCount = allDownloads.filter(Boolean).length;
-
-    const downloads = allDownloads.map((result, index) => ({
-      result,
-      requestedFileNames: downloadToRequests.get(index) ?? [result.filePath],
-    }));
-
-    return { downloads, successCount };
-  } catch (error) {
-    caughtError = error;
-    throw error;
-  } finally {
-    if (hooks.onComplete) {
-      try {
-        hooks.onComplete({
-          input,
-          durationMs: Date.now() - startedAt,
-          imageCount,
-          successCount,
-          error: caughtError,
-        });
-      } catch {
-        // intentionally empty
-      }
+    } else {
+      // Rendered nodes are always unique.
+      const downloadIndex = downloadItems.length;
+      downloadItems.push({ ...downloadItem, nodeId });
+      downloadToRequests.set(downloadIndex, [finalFileName]);
     }
   }
+
+  await hooks.onDownloadStart?.(downloadItems.length);
+  let allDownloads: ImageProcessingResult[];
+  try {
+    allDownloads = await figmaService.downloadImages(fileKey, localPath, downloadItems, {
+      pngScale,
+    });
+  } catch (error) {
+    tagError(error, { phase: "download" });
+  } finally {
+    hooks.onDownloadComplete?.();
+  }
+
+  const successCount = allDownloads.filter(Boolean).length;
+
+  const downloads = allDownloads.map((result, index) => ({
+    result,
+    requestedFileNames: downloadToRequests.get(index) ?? [result.filePath],
+  }));
+
+  return { downloads, successCount };
 }

@@ -55,10 +55,6 @@ const argv = cli({
       type: Boolean,
       description: "Run in stdio transport mode for MCP clients",
     },
-    noTelemetry: {
-      type: Boolean,
-      description: "Disable usage telemetry (telemetry is on by default)",
-    },
   },
   commands: [fetchCommand],
 });

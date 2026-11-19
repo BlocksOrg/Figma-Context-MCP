@@ -1,7 +1,6 @@
 import { config as loadEnv } from "dotenv";
 import { resolve as resolvePath } from "path";
 import type { FigmaAuthOptions } from "./services/figma.js";
-import { resolveTelemetryEnabled } from "./telemetry/index.js";
 import { VALID_OUTPUT_FORMATS, isOutputFormat, type OutputFormat } from "./utils/serialize.js";
 
 export type Source = "cli" | "env" | "default";
@@ -23,7 +22,6 @@ export interface ServerFlags {
   imageDir?: string;
   proxy?: string;
   stdio?: boolean;
-  noTelemetry?: boolean;
 }
 
 export interface ServerConfig {
@@ -35,7 +33,6 @@ export interface ServerConfig {
   skipImageDownloads: boolean;
   imageDir: string;
   isStdioMode: boolean;
-  noTelemetry: boolean;
   configSources: Record<string, Source>;
 }
 
@@ -65,10 +62,9 @@ export function envBool(name: string): boolean | undefined {
   return undefined;
 }
 
-// Throws on invalid input so callers control how the failure surfaces — the
-// server entry point exits the process, but the `fetch` CLI command needs to
-// run its `finally` (telemetry shutdown) before exiting, which `process.exit`
-// would bypass.
+// Throws on invalid input so callers control how the failure surfaces (the
+// server entry point exits the process; the `fetch` CLI sets an exit code) and
+// so the validators stay pure for library consumers.
 export function parseOutputFormat(
   value: string | undefined,
   source: string,
@@ -85,9 +81,19 @@ function maskApiKey(key: string): string {
   return `****${key.slice(-4)}`;
 }
 
-export function loadEnvFile(envPath?: string): string {
+/**
+ * Load an env file. An explicit `--env <path>` is always honored. Without one,
+ * `./.env` is only picked up when `implicit` is set: HTTP mode and the `fetch`
+ * CLI are run by a person from their own project, but a stdio server is
+ * spawned by an MCP client with an arbitrary cwd — in a Blocks sandbox that is
+ * the user's repository, whose `.env` must not be able to override the
+ * credentials the host injected (`override: true` lets the file win).
+ */
+export function loadEnvFile(envPath: string | undefined, { implicit = true } = {}): string {
   const envFilePath = envPath ? resolvePath(envPath) : resolvePath(process.cwd(), ".env");
-  loadEnv({ path: envFilePath, override: true });
+  if (envPath || implicit) {
+    loadEnv({ path: envFilePath, override: true });
+  }
   return envFilePath;
 }
 
@@ -137,8 +143,10 @@ export function requireGlobalCredentials(auth: FigmaAuthOptions): void {
 }
 
 export function getServerConfig(flags: ServerFlags): ServerConfig {
+  const isStdioMode = flags.stdio === true;
+
   // Load .env before resolving env-backed values
-  const envFilePath = loadEnvFile(flags.env);
+  const envFilePath = loadEnvFile(flags.env, { implicit: !isStdioMode });
   const envFileSource: Source = flags.env !== undefined ? "cli" : "default";
 
   // Auth
@@ -173,16 +181,6 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
   const formatFromEnv = parseOutputFormat(envStr("OUTPUT_FORMAT"), "OUTPUT_FORMAT");
   const outputFormat = resolve<OutputFormat>(formatFromFlag, formatFromEnv, "tree");
 
-  const isStdioMode = flags.stdio === true;
-
-  const noTelemetry = flags.noTelemetry ?? false;
-  const telemetrySource: Source =
-    flags.noTelemetry === true
-      ? "cli"
-      : process.env.FRAMELINK_TELEMETRY !== undefined || process.env.DO_NOT_TRACK !== undefined
-        ? "env"
-        : "default";
-
   const configSources: Record<string, Source> = {
     envFile: envFileSource,
     figmaApiKey: figmaApiKey.source,
@@ -193,7 +191,6 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
     outputFormat: outputFormat.source,
     skipImageDownloads: skipImageDownloads.source,
     imageDir: imageDir.source,
-    telemetry: telemetrySource,
   };
 
   if (!isStdioMode) {
@@ -220,10 +217,6 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
       `- SKIP_IMAGE_DOWNLOADS: ${skipImageDownloads.value} (source: ${configSources.skipImageDownloads})`,
     );
     console.log(`- IMAGE_DIR: ${imageDir.value} (source: ${configSources.imageDir})`);
-    const telemetryEnabled = resolveTelemetryEnabled(noTelemetry);
-    console.log(
-      `- TELEMETRY: ${telemetryEnabled ? "enabled" : "disabled"} (source: ${configSources.telemetry})`,
-    );
     console.log();
   }
 
@@ -236,7 +229,6 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
     skipImageDownloads: skipImageDownloads.value,
     imageDir: imageDir.value,
     isStdioMode,
-    noTelemetry,
     configSources,
   };
 }
