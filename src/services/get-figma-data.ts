@@ -29,14 +29,6 @@ export type GetFigmaDataResult = {
   metrics: GetFigmaDataMetrics;
 };
 
-export type GetFigmaDataOutcome = {
-  input: GetFigmaDataInput;
-  outputFormat: OutputFormat;
-  durationMs: number;
-  metrics?: GetFigmaDataMetrics;
-  error?: unknown;
-};
-
 /**
  * Live progress reader exposed to onSimplifyStart so callers can render
  * heartbeats showing real-time node counts. Closes over the per-call counter
@@ -52,13 +44,6 @@ export type GetFigmaDataHooks = {
   onSimplifyStart?: (progress: SimplifyProgress) => void | Promise<void>;
   onSimplifyComplete?: () => void | Promise<void>;
   onSerializeStart?: () => void | Promise<void>;
-  /**
-   * Fires exactly once per call, after the pipeline completes (success or
-   * failure). Lets shells observe outcomes without embedding telemetry
-   * bookkeeping in the core. Observer errors are swallowed silently — a
-   * broken observer must never break the pipeline.
-   */
-  onComplete?: (outcome: GetFigmaDataOutcome) => void;
 };
 
 /**
@@ -77,102 +62,78 @@ export async function getFigmaData(
   hooks: GetFigmaDataHooks = {},
 ): Promise<GetFigmaDataResult> {
   const { fileKey, nodeId, depth } = input;
-  const startedAt = Date.now();
-  let metrics: GetFigmaDataMetrics | undefined;
-  let caughtError: unknown;
   // Per-call counter shared with the walker. Lives in the call closure so
   // overlapping HTTP requests each have their own — no module-global state.
   const nodeCounter = { count: 0 };
 
+  await hooks.onFetchStart?.();
+  let rawResult: { data: GetFileResponse | GetFileNodesResponse; rawSize: number };
+  const fetchStart = Date.now();
   try {
-    await hooks.onFetchStart?.();
-    let rawResult: { data: GetFileResponse | GetFileNodesResponse; rawSize: number };
-    const fetchStart = Date.now();
-    try {
-      if (nodeId) {
-        rawResult = await figmaService.getRawNode(fileKey, nodeId, depth);
-      } else {
-        rawResult = await figmaService.getRawFile(fileKey, depth);
-      }
-    } catch (error) {
-      tagError(error, { phase: "fetch" });
-    } finally {
-      await hooks.onFetchComplete?.();
+    if (nodeId) {
+      rawResult = await figmaService.getRawNode(fileKey, nodeId, depth);
+    } else {
+      rawResult = await figmaService.getRawFile(fileKey, depth);
     }
-    const fetchMs = Date.now() - fetchStart;
-    const rawApiResponse = rawResult.data;
-    const rawSizeKb = rawResult.rawSize / 1024;
-
-    await hooks.onSimplifyStart?.({ getNodeCount: () => nodeCounter.count });
-    let simplifiedDesign;
-    const simplifyStart = Date.now();
-    try {
-      simplifiedDesign = await simplifyRawFigmaObject(rawApiResponse, allExtractors, {
-        maxDepth: depth,
-        afterChildren: collapseSvgContainers,
-        nodeCounter,
-      });
-    } catch (error) {
-      tagError(error, { phase: "simplify" });
-    } finally {
-      await hooks.onSimplifyComplete?.();
-    }
-    const simplifyMs = Date.now() - simplifyStart;
-
-    writeLogs("figma-simplified.json", simplifiedDesign);
-
-    const rawNodeCount = nodeCounter.count;
-    const hasVariables = detectVariables(rawApiResponse);
-    const namedStyleCount = countNamedStyles(rawApiResponse);
-    const measured = measureSimplifiedDesign(simplifiedDesign);
-
-    await hooks.onSerializeStart?.();
-    const serializeStart = Date.now();
-    let formatted: string;
-    try {
-      formatted = serializeResult(wrapForSerialization(simplifiedDesign), outputFormat);
-    } catch (error) {
-      tagError(error, { phase: "serialize" });
-    }
-    const simplifiedSizeKb = Buffer.byteLength(formatted, "utf8") / 1024;
-    const serializeMs = Date.now() - serializeStart;
-
-    metrics = {
-      rawSizeKb,
-      simplifiedSizeKb,
-      rawNodeCount,
-      simplifiedNodeCount: measured.simplifiedNodeCount,
-      maxDepth: measured.maxDepth,
-      namedStyleCount,
-      componentCount: measured.componentCount,
-      instanceCount: measured.instanceCount,
-      textNodeCount: measured.textNodeCount,
-      imageNodeCount: measured.imageNodeCount,
-      componentPropertyCount: measured.componentPropertyCount,
-      hasVariables,
-      fetchMs,
-      simplifyMs,
-      serializeMs,
-    };
-    return { formatted, metrics };
   } catch (error) {
-    caughtError = error;
-    throw error;
+    tagError(error, { phase: "fetch" });
   } finally {
-    if (hooks.onComplete) {
-      // Observer errors must never break the pipeline — e.g. a telemetry
-      // failure should not mask the tool's real result or its original error.
-      try {
-        hooks.onComplete({
-          input,
-          outputFormat,
-          durationMs: Date.now() - startedAt,
-          metrics,
-          error: caughtError,
-        });
-      } catch {
-        // intentionally empty
-      }
-    }
+    await hooks.onFetchComplete?.();
   }
+  const fetchMs = Date.now() - fetchStart;
+  const rawApiResponse = rawResult.data;
+  const rawSizeKb = rawResult.rawSize / 1024;
+
+  await hooks.onSimplifyStart?.({ getNodeCount: () => nodeCounter.count });
+  let simplifiedDesign;
+  const simplifyStart = Date.now();
+  try {
+    simplifiedDesign = await simplifyRawFigmaObject(rawApiResponse, allExtractors, {
+      maxDepth: depth,
+      afterChildren: collapseSvgContainers,
+      nodeCounter,
+    });
+  } catch (error) {
+    tagError(error, { phase: "simplify" });
+  } finally {
+    await hooks.onSimplifyComplete?.();
+  }
+  const simplifyMs = Date.now() - simplifyStart;
+
+  writeLogs("figma-simplified.json", simplifiedDesign);
+
+  const rawNodeCount = nodeCounter.count;
+  const hasVariables = detectVariables(rawApiResponse);
+  const namedStyleCount = countNamedStyles(rawApiResponse);
+  const measured = measureSimplifiedDesign(simplifiedDesign);
+
+  await hooks.onSerializeStart?.();
+  const serializeStart = Date.now();
+  let formatted: string;
+  try {
+    formatted = serializeResult(wrapForSerialization(simplifiedDesign), outputFormat);
+  } catch (error) {
+    tagError(error, { phase: "serialize" });
+  }
+  const simplifiedSizeKb = Buffer.byteLength(formatted, "utf8") / 1024;
+  const serializeMs = Date.now() - serializeStart;
+
+  const metrics: GetFigmaDataMetrics = {
+    rawSizeKb,
+    simplifiedSizeKb,
+    rawNodeCount,
+    simplifiedNodeCount: measured.simplifiedNodeCount,
+    maxDepth: measured.maxDepth,
+    namedStyleCount,
+    componentCount: measured.componentCount,
+    instanceCount: measured.instanceCount,
+    textNodeCount: measured.textNodeCount,
+    imageNodeCount: measured.imageNodeCount,
+    componentPropertyCount: measured.componentPropertyCount,
+    hasVariables,
+    fetchMs,
+    simplifyMs,
+    serializeMs,
+  };
+  return { formatted, metrics };
 }

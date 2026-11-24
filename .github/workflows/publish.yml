@@ -1,0 +1,84 @@
+name: Publish to npm
+
+# Same shape as BlocksOrg/mcp-linear's publish workflow: a maintainer picks the
+# bump, the job bumps package.json (+ server.json), tags, creates the GitHub
+# Release and publishes to npm with the org's NPM_TOKEN. No release-please, no
+# OIDC trusted publishing — one secret, one button, like the Linear server.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version bump type (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  publish:
+    if: ${{ github.repository_owner == 'BlocksOrg' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org/'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm type-check
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Version bump
+        id: version
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          npm version ${{ github.event.inputs.version }} --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+          # server.json (MCP registry manifest) carries the same version twice; keep it in step.
+          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp && mv server.tmp server.json
+          git add package.json server.json
+          git commit -m "chore: release v${VERSION} [skip ci]"
+          git tag "v${VERSION}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Push changes
+        run: git push --follow-tags
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          generate_release_notes: true
+
+      # --access public: scoped packages default to restricted on first publish.
+      # --no-git-checks: the bump commit was just pushed; pnpm's branch/clean
+      # checks are not meaningful on a CI checkout.
+      - name: Publish to npm
+        run: pnpm publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

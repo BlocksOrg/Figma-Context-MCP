@@ -37,7 +37,7 @@ This focused approach ensures:
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/GLips/Figma-Context-MCP.git
+   git clone https://github.com/BlocksOrg/Figma-Context-MCP.git
    cd Figma-Context-MCP
    ```
 
@@ -148,14 +148,14 @@ src/
 
 ### Commit Messages
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/) to automate versioning and changelog generation. The maintainer applies the correct prefix when squash-merging your PR — you don't need to worry about this in your individual commits.
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). The maintainer applies the correct prefix when squash-merging your PR — you don't need to worry about this in your individual commits.
 
-For reference, these prefixes determine version bumps:
+Releases are cut by hand with the **Publish to npm** workflow (see `CLAUDE.md` → Releasing); the prefixes tell the maintainer which bump to pick:
 
-- `fix: <description>` — patch release (0.6.4 → 0.6.5)
-- `feat: <description>` — minor release (0.6.4 → 0.7.0)
-- `feat!: <description>` or `BREAKING CHANGE:` footer — major release (0.6.4 → 1.0.0)
-- `chore:`, `docs:`, `test:`, `refactor:` — no release triggered
+- `fix: <description>` — patch release (0.14.0 → 0.14.1)
+- `feat: <description>` — minor release (0.14.0 → 0.15.0)
+- `feat!: <description>` or `BREAKING CHANGE:` footer — major release (0.14.0 → 1.0.0)
+- `chore:`, `docs:`, `test:`, `refactor:` — no release needed on their own
 
 ### What We're Looking For
 

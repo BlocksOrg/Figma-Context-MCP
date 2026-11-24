@@ -234,10 +234,8 @@ export const componentExtractor: ExtractorFn = (node, result, context) => {
     if (hasValue("componentId", node)) {
       result.componentId = node.componentId;
     }
-    if (hasValue("componentProperties", node)) {
-      const props = simplifyComponentProperties(
-        node.componentProperties as Record<string, { type: string; value: boolean | string }>,
-      );
+    if (node.componentProperties) {
+      const props = simplifyComponentProperties(node.componentProperties);
       if (Object.keys(props).length > 0) {
         result.componentProperties = props;
       }
@@ -265,12 +263,7 @@ export const componentExtractor: ExtractorFn = (node, result, context) => {
     node.componentPropertyDefinitions &&
     typeof node.componentPropertyDefinitions === "object"
   ) {
-    const defs = simplifyPropertyDefinitions(
-      node.componentPropertyDefinitions as Record<
-        string,
-        { type: string; defaultValue: boolean | string }
-      >,
-    );
+    const defs = simplifyPropertyDefinitions(node.componentPropertyDefinitions);
     if (Object.keys(defs).length > 0) {
       context.traversalState.componentPropertyDefinitions[node.id] = defs;
     }

@@ -1,7 +1,8 @@
 import { config as loadEnv } from "dotenv";
+import { readFileSync } from "fs";
+import { homedir } from "os";
 import { resolve as resolvePath } from "path";
-import type { FigmaAuthOptions } from "./services/figma.js";
-import { resolveTelemetryEnabled } from "./telemetry/index.js";
+import type { CredentialSource, FigmaCredential } from "./services/figma.js";
 import { VALID_OUTPUT_FORMATS, isOutputFormat, type OutputFormat } from "./utils/serialize.js";
 
 export type Source = "cli" | "env" | "default";
@@ -14,6 +15,7 @@ export interface Resolved<T> {
 export interface ServerFlags {
   figmaApiKey?: string;
   figmaOauthToken?: string;
+  figmaOauthTokenFile?: string;
   env?: string;
   port?: number;
   host?: string;
@@ -23,11 +25,10 @@ export interface ServerFlags {
   imageDir?: string;
   proxy?: string;
   stdio?: boolean;
-  noTelemetry?: boolean;
 }
 
 export interface ServerConfig {
-  auth: FigmaAuthOptions;
+  auth: CredentialSource;
   port: number;
   host: string;
   proxy: string | undefined;
@@ -35,7 +36,6 @@ export interface ServerConfig {
   skipImageDownloads: boolean;
   imageDir: string;
   isStdioMode: boolean;
-  noTelemetry: boolean;
   configSources: Record<string, Source>;
 }
 
@@ -53,7 +53,10 @@ export function envStr(name: string): string | undefined {
 export function envInt(...names: string[]): number | undefined {
   for (const name of names) {
     const val = process.env[name];
-    if (val) return parseInt(val, 10);
+    if (val) {
+      const n = parseInt(val, 10);
+      if (!isNaN(n)) return n;
+    }
   }
   return undefined;
 }
@@ -65,10 +68,9 @@ export function envBool(name: string): boolean | undefined {
   return undefined;
 }
 
-// Throws on invalid input so callers control how the failure surfaces — the
-// server entry point exits the process, but the `fetch` CLI command needs to
-// run its `finally` (telemetry shutdown) before exiting, which `process.exit`
-// would bypass.
+// Throws on invalid input so callers control how the failure surfaces (the
+// server entry point exits the process; the `fetch` CLI sets an exit code) and
+// so the validators stay pure for library consumers.
 export function parseOutputFormat(
   value: string | undefined,
   source: string,
@@ -85,27 +87,77 @@ function maskApiKey(key: string): string {
   return `****${key.slice(-4)}`;
 }
 
-export function loadEnvFile(envPath?: string): string {
+/**
+ * Load an env file. An explicit `--env <path>` is always honored. Without one,
+ * `./.env` is only picked up when `implicit` is set: HTTP mode and the `fetch`
+ * CLI are run by a person from their own project, but a stdio server is
+ * spawned by an MCP client with an arbitrary cwd — in a Blocks sandbox that is
+ * the user's repository, whose `.env` must not be able to override the
+ * credentials the host injected (`override: true` lets the file win).
+ */
+export function loadEnvFile(envPath: string | undefined, { implicit = true } = {}): string {
   const envFilePath = envPath ? resolvePath(envPath) : resolvePath(process.cwd(), ".env");
-  loadEnv({ path: envFilePath, override: true });
+  if (envPath || implicit) {
+    loadEnv({ path: envFilePath, override: true });
+  }
   return envFilePath;
 }
 
-export function resolveAuth(flags: {
+export const DEFAULT_OAUTH_TOKEN_FILE = "~/.config/figma/.oauth_token";
+
+export type AuthFlags = {
   figmaApiKey?: string;
   figmaOauthToken?: string;
-}): FigmaAuthOptions {
-  const figmaApiKey = resolve(flags.figmaApiKey, envStr("FIGMA_API_KEY"), "");
-  const figmaOauthToken = resolve(flags.figmaOauthToken, envStr("FIGMA_OAUTH_TOKEN"), "");
+  figmaOauthTokenFile?: string;
+};
 
-  const useOAuth = Boolean(figmaOauthToken.value);
-  const auth: FigmaAuthOptions = {
-    figmaApiKey: figmaApiKey.value,
-    figmaOAuthToken: figmaOauthToken.value,
-    useOAuth,
+/**
+ * Where the token file lives. The flag wins, then `FIGMA_OAUTH_TOKEN_FILE`,
+ * then the default path. Setting either to an empty string disables the file
+ * lookup entirely (for hosts that want env-only credentials).
+ */
+function resolveTokenFilePath(flag: string | undefined): string | undefined {
+  const raw = resolve(flag, process.env.FIGMA_OAUTH_TOKEN_FILE, DEFAULT_OAUTH_TOKEN_FILE).value;
+  if (raw === "") return undefined;
+  return raw.startsWith("~/") ? resolvePath(homedir(), raw.slice(2)) : resolvePath(raw);
+}
+
+function readTokenFile(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8").trim() || undefined;
+  } catch {
+    // Missing or unreadable is the normal case outside a Blocks sandbox.
+    return undefined;
+  }
+}
+
+/**
+ * The server-default credential chain, evaluated on EVERY call (see
+ * `CredentialSource`): token file → OAuth token (flag, then env) → personal
+ * access token (flag, then env). The file comes first because it is the one
+ * slot an external refresher keeps current; flags and env vars are the
+ * startup snapshot and cannot change under a running process.
+ */
+export function createCredentialSource(flags: AuthFlags): CredentialSource {
+  return (): FigmaCredential | undefined => {
+    const filePath = resolveTokenFilePath(flags.figmaOauthTokenFile);
+    const fileToken = filePath ? readTokenFile(filePath) : undefined;
+    if (fileToken) return { kind: "oauth", token: fileToken, source: filePath! };
+
+    if (flags.figmaOauthToken) {
+      return { kind: "oauth", token: flags.figmaOauthToken, source: "--figma-oauth-token" };
+    }
+    const envOauth = envStr("FIGMA_OAUTH_TOKEN");
+    if (envOauth) return { kind: "oauth", token: envOauth, source: "FIGMA_OAUTH_TOKEN" };
+
+    if (flags.figmaApiKey) {
+      return { kind: "pat", token: flags.figmaApiKey, source: "--figma-api-key" };
+    }
+    const envKey = envStr("FIGMA_API_KEY");
+    if (envKey) return { kind: "pat", token: envKey, source: "FIGMA_API_KEY" };
+
+    return undefined;
   };
-
-  return auth;
 }
 
 /**
@@ -129,24 +181,31 @@ export class UsageError extends Error {
  * something resolvable at startup or they'd just defer the failure to the
  * first tool call with a misleading "send X-Figma-Token" message.
  */
-export function requireGlobalCredentials(auth: FigmaAuthOptions): void {
-  if (auth.figmaApiKey || auth.figmaOAuthToken) return;
+export function requireGlobalCredentials(credentials: CredentialSource): void {
+  if (credentials()) return;
   throw new UsageError(
-    "Either FIGMA_API_KEY or FIGMA_OAUTH_TOKEN is required (via CLI argument or .env file)",
+    `Either FIGMA_API_KEY or FIGMA_OAUTH_TOKEN is required (via CLI argument, environment variable, .env file, or a token file at ${DEFAULT_OAUTH_TOKEN_FILE})`,
   );
 }
 
 export function getServerConfig(flags: ServerFlags): ServerConfig {
+  const isStdioMode = flags.stdio === true;
+
   // Load .env before resolving env-backed values
-  const envFilePath = loadEnvFile(flags.env);
+  const envFilePath = loadEnvFile(flags.env, { implicit: !isStdioMode });
   const envFileSource: Source = flags.env !== undefined ? "cli" : "default";
 
   // Auth
-  const auth = resolveAuth(flags);
+  const auth = createCredentialSource(flags);
 
   // Resolve config values: CLI flag → env var → default
   const figmaApiKey = resolve(flags.figmaApiKey, envStr("FIGMA_API_KEY"), "");
   const figmaOauthToken = resolve(flags.figmaOauthToken, envStr("FIGMA_OAUTH_TOKEN"), "");
+  const figmaOauthTokenFile = resolve(
+    flags.figmaOauthTokenFile,
+    envStr("FIGMA_OAUTH_TOKEN_FILE"),
+    DEFAULT_OAUTH_TOKEN_FILE,
+  );
   const port = resolve(flags.port, envInt("FRAMELINK_PORT", "PORT"), 3333);
   const host = resolve(flags.host, envStr("FRAMELINK_HOST"), "127.0.0.1");
   const skipImageDownloads = resolve(
@@ -173,41 +232,32 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
   const formatFromEnv = parseOutputFormat(envStr("OUTPUT_FORMAT"), "OUTPUT_FORMAT");
   const outputFormat = resolve<OutputFormat>(formatFromFlag, formatFromEnv, "tree");
 
-  const isStdioMode = flags.stdio === true;
-
-  const noTelemetry = flags.noTelemetry ?? false;
-  const telemetrySource: Source =
-    flags.noTelemetry === true
-      ? "cli"
-      : process.env.FRAMELINK_TELEMETRY !== undefined || process.env.DO_NOT_TRACK !== undefined
-        ? "env"
-        : "default";
-
   const configSources: Record<string, Source> = {
     envFile: envFileSource,
     figmaApiKey: figmaApiKey.source,
     figmaOauthToken: figmaOauthToken.source,
+    figmaOauthTokenFile: figmaOauthTokenFile.source,
     port: port.source,
     host: host.source,
     proxy: proxy.source,
     outputFormat: outputFormat.source,
     skipImageDownloads: skipImageDownloads.source,
     imageDir: imageDir.source,
-    telemetry: telemetrySource,
   };
 
   if (!isStdioMode) {
     console.log("\nConfiguration:");
     console.log(`- ENV_FILE: ${envFilePath} (source: ${configSources.envFile})`);
-    if (auth.useOAuth) {
-      console.log(
-        `- FIGMA_OAUTH_TOKEN: ${maskApiKey(auth.figmaOAuthToken)} (source: ${configSources.figmaOauthToken})`,
-      );
+    // Startup snapshot only — the chain is re-evaluated on every request.
+    const credential = auth();
+    console.log(
+      `- FIGMA_OAUTH_TOKEN_FILE: ${figmaOauthTokenFile.value || "(disabled)"} (source: ${configSources.figmaOauthTokenFile})`,
+    );
+    if (credential?.kind === "oauth") {
+      console.log(`- OAuth token: ${maskApiKey(credential.token)} (source: ${credential.source})`);
       console.log("- Authentication Method: OAuth Bearer Token");
-    } else if (auth.figmaApiKey) {
-      console.log(
-        `- FIGMA_API_KEY: ${maskApiKey(auth.figmaApiKey)} (source: ${configSources.figmaApiKey})`,
-      );
+    } else if (credential) {
+      console.log(`- API key: ${maskApiKey(credential.token)} (source: ${credential.source})`);
       console.log("- Authentication Method: Personal Access Token (X-Figma-Token)");
     } else {
       console.log("- Authentication Method: Per-request X-Figma-Token header");
@@ -220,10 +270,6 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
       `- SKIP_IMAGE_DOWNLOADS: ${skipImageDownloads.value} (source: ${configSources.skipImageDownloads})`,
     );
     console.log(`- IMAGE_DIR: ${imageDir.value} (source: ${configSources.imageDir})`);
-    const telemetryEnabled = resolveTelemetryEnabled(noTelemetry);
-    console.log(
-      `- TELEMETRY: ${telemetryEnabled ? "enabled" : "disabled"} (source: ${configSources.telemetry})`,
-    );
     console.log();
   }
 
@@ -236,7 +282,6 @@ export function getServerConfig(flags: ServerFlags): ServerConfig {
     skipImageDownloads: skipImageDownloads.value,
     imageDir: imageDir.value,
     isStdioMode,
-    noTelemetry,
     configSources,
   };
 }

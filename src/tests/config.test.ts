@@ -1,5 +1,8 @@
+import { mkdtempSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { envBool, envInt, envStr, resolve } from "~/config.js";
+import { envBool, envInt, envStr, loadEnvFile, resolve } from "~/config.js";
 
 describe("resolve", () => {
   it("CLI flag wins over env and default", () => {
@@ -85,5 +88,38 @@ describe("envBool", () => {
 
   it("returns undefined when not set", () => {
     expect(envBool("TEST_BOOL_MISSING")).toBeUndefined();
+  });
+});
+
+describe("loadEnvFile", () => {
+  const originalCwd = process.cwd();
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    vi.unstubAllEnvs();
+  });
+
+  function projectWithDotEnv(): string {
+    const dir = mkdtempSync(join(tmpdir(), "mcp-figma-env-"));
+    writeFileSync(join(dir, ".env"), "FIGMA_API_KEY=from-repo-dotenv\n");
+    return dir;
+  }
+
+  it("ignores ./.env when implicit loading is off (stdio mode)", () => {
+    vi.stubEnv("FIGMA_API_KEY", "from-host");
+    process.chdir(projectWithDotEnv());
+
+    loadEnvFile(undefined, { implicit: false });
+
+    expect(process.env.FIGMA_API_KEY).toBe("from-host");
+  });
+
+  it("still honors an explicit --env path when implicit loading is off", () => {
+    vi.stubEnv("FIGMA_API_KEY", "from-host");
+    const dir = projectWithDotEnv();
+
+    loadEnvFile(join(dir, ".env"), { implicit: false });
+
+    expect(process.env.FIGMA_API_KEY).toBe("from-repo-dotenv");
   });
 });

@@ -32,11 +32,16 @@ pnpm test -- --testNamePattern="pattern"
 
 ### Releasing
 
-Releases are automated via [release-please](https://github.com/googleapis/release-please). On merge to `main`, release-please reads conventional commit prefixes (`fix:`, `feat:`, `feat!:`) and maintains a release PR. Merging the release PR publishes to npm via OIDC trusted publishing.
+Releases are manual and mirror BlocksOrg/mcp-linear. Two equivalent paths:
+
+- **Locally:** `./scripts/publish.sh <patch|minor|major> [--rc] [--dry-run]` (the same script mcp-linear ships) — bumps `package.json` + `server.json`, `pnpm build`, `pnpm publish --access public --tag latest|rc` with your own npm login. Then commit the bump and tag it: `git commit -am "chore: release vX.Y.Z" && git tag vX.Y.Z && git push --follow-tags`.
+- **From GitHub:** the **Publish to npm** workflow (`.github/workflows/publish.yml`, Actions tab → "Run workflow", or `gh workflow run publish.yml -f version=patch|minor|major`) does the same plus the commit, tag and GitHub Release, using the `NPM_TOKEN` repository secret (the same org token mcp-linear publishes with).
+
+Nothing publishes on merge to `main`.
 
 ### PR Title Convention
 
-PRs are squash-merged, so the PR title becomes the commit message that release-please parses. Always use [Conventional Commit](https://www.conventionalcommits.org/) prefixes in PR titles.
+PRs are squash-merged, so the PR title becomes the commit message on `main` and feeds the generated release notes. Use [Conventional Commit](https://www.conventionalcommits.org/) prefixes in PR titles; pick the bump type (`fix:` → patch, `feat:` → minor, breaking → major) when you run the publish workflow.
 
 ## Architecture
 

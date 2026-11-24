@@ -81,7 +81,7 @@ export async function fetchJSON<T extends { status?: number }>(
         is_retryable: RETRYABLE_STATUSES.has(response.status),
       });
     }
-    // Read as text first so we can measure the raw body size for telemetry,
+    // Read as text first so we can report the raw body size in metrics,
     // then parse. This is the same work response.json() does internally, just
     // split so we can observe the byte count before parsing.
     const text = await response.text();
