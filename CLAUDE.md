@@ -32,11 +32,11 @@ pnpm test -- --testNamePattern="pattern"
 
 ### Releasing
 
-Releases are automated via [release-please](https://github.com/googleapis/release-please). On merge to `main`, release-please reads conventional commit prefixes (`fix:`, `feat:`, `feat!:`) and maintains a release PR. Merging the release PR publishes to npm via OIDC trusted publishing.
+Releases are manual and mirror BlocksOrg/mcp-linear: run the **Publish to npm** workflow (`.github/workflows/publish.yml`, Actions tab → "Run workflow", or `gh workflow run publish.yml -f version=patch|minor|major`). It type-checks, tests, builds, bumps `package.json` + `server.json`, commits `chore: release vX.Y.Z`, tags `vX.Y.Z`, creates the GitHub Release with generated notes, and runs `pnpm publish --access public` to `@blocksuser/figma-mcp` using the `NPM_TOKEN` repository secret (the same org token mcp-linear publishes with). Nothing publishes on merge to `main`.
 
 ### PR Title Convention
 
-PRs are squash-merged, so the PR title becomes the commit message that release-please parses. Always use [Conventional Commit](https://www.conventionalcommits.org/) prefixes in PR titles.
+PRs are squash-merged, so the PR title becomes the commit message on `main` and feeds the generated release notes. Use [Conventional Commit](https://www.conventionalcommits.org/) prefixes in PR titles; pick the bump type (`fix:` → patch, `feat:` → minor, breaking → major) when you run the publish workflow.
 
 ## Architecture
 

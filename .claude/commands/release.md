@@ -1,47 +1,28 @@
 # Release
 
-Review and publish a new release.
+Publish a new `@blocksuser/figma-mcp` release to npm.
 
 ## Steps
 
-1. **Check for a release-please PR:**
-   Run `gh pr list --repo BlocksOrg/Figma-Context-MCP --label "autorelease: pending" --json number,title,url` to find the open release PR.
+1. **Decide the bump** from what landed on `main` since the last tag:
+   `git log $(git describe --tags --abbrev=0)..origin/main --oneline` (or
+   `gh release view --repo BlocksOrg/Figma-Context-MCP` for the previous release). Conventional
+   prefixes map to the bump: `fix:` → patch, `feat:` → minor, breaking change → major.
 
-   If no release PR exists, inform the user: "No pending release PR. Release-please creates one automatically when conventional commits (`fix:`, `feat:`) land on `main`."
+2. **Confirm with the user** via AskUserQuestion: "Run the Publish workflow with bump `<type>`
+   (v<current> → v<next>)?" Never dispatch without confirmation — it publishes to the public
+   registry and cannot be unpublished after 72 h.
 
-2. **Show what's in the release:**
-   Run `gh pr view <number> --json body` to display the pending changelog and version bump. Summarize:
+3. **Dispatch the workflow:**
+   `gh workflow run publish.yml --repo BlocksOrg/Figma-Context-MCP -f version=<patch|minor|major>`
+   then `gh run list --repo BlocksOrg/Figma-Context-MCP --workflow publish.yml --limit 1` and
+   `gh run watch <id>`. The job type-checks, tests, builds, bumps `package.json` + `server.json`,
+   pushes `chore: release vX.Y.Z` + tag, creates the GitHub Release (generated notes) and runs
+   `pnpm publish --access public` with the `NPM_TOKEN` secret.
 
-   - New version number
-   - Number of features, fixes, and other changes
-   - List of included commits
+4. **Verify:** `npm view @blocksuser/figma-mcp version` shows the new version and
+   `gh release view vX.Y.Z --repo BlocksOrg/Figma-Context-MCP` exists.
 
-3. **Ask for confirmation:**
-   Use AskUserQuestion: "Merge this release PR to publish v<version> to npm?"
-
-   - **Merge and publish** — Proceed with merge
-   - **Review diff first** — Show `gh pr diff <number>`
-   - **Cancel** — Stop without merging
-
-4. **Merge the release PR:**
-   Run `gh pr merge <number> --rebase --repo BlocksOrg/Figma-Context-MCP` (or merge via the GitHub UI).
-
-   **Use rebase, not squash.** Feature PRs are squash-merged (so each conventional-commit title,
-   with its `(#NNN)`, feeds the changelog), but the release PR is the single `chore(main): release
-X.Y.Z` commit release-please authored. Rebase replays it onto `main` verbatim — bot authorship,
-   clean subject, no `(#NNN)`. Squash would rewrite all three and diverge from every prior release
-   (check `git log` for `chore(main): release` commits — they're all single-parent, bot-authored,
-   no PR suffix). Merging through the UI does the same thing.
-
-5. **Verify:**
-   Run `gh run list --repo BlocksOrg/Figma-Context-MCP --limit 1` to confirm the Release workflow triggered.
-   Report the workflow run URL so the user can monitor npm publish.
-
-   The Release workflow also bumps `server.json` and publishes to npm (OIDC) and the MCP registry —
-   all hands-off. No manual steps beyond merging the PR.
-
-6. **Write the curated release notes:**
-   Once the workflow has published the GitHub Release (the tag exists), run `/release-notes` to
-   replace the mechanical, auto-generated Release body with brand-voice highlights. release-please
-   only produces a terse commit-title list; `/release-notes` turns it into something worth reading.
-   `CHANGELOG.md` is left as-is — release-please owns it.
+5. **Downstream:** the sandbox images install the package from `dependencies/*.package.json` in
+   BlocksOrg/agents (`"@blocksuser/figma-mcp": "^X.Y"`) — a major bump needs that range widened
+   and a new agents revision deployed; minor/patch are picked up on the next image build.
