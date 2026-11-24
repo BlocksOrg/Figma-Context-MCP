@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Publish @blocksuser/figma-mcp to npm — the same script BlocksOrg/mcp-linear
+# Publish @blocksuser/mcp-figma to npm — the same script BlocksOrg/mcp-linear
 # ships as scripts/publish.sh, on pnpm. Run it from a clean checkout of the
 # commit you want to ship, logged in to npm as a member of the @blocksuser org
 # (`npm login`, or NODE_AUTH_TOKEN / an ~/.npmrc authToken).
 # Usage: ./scripts/publish.sh <patch|minor|major> [--rc] [--dry-run]
 
-PACKAGE="@blocksuser/figma-mcp"
+PACKAGE="@blocksuser/mcp-figma"
 
 usage() {
   cat <<USAGE

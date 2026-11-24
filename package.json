@@ -1,12 +1,12 @@
 {
-  "name": "@blocksuser/figma-mcp",
-  "version": "0.13.2",
+  "name": "@blocksuser/mcp-figma",
+  "version": "0.14.0-rc.2",
   "mcpName": "io.github.BlocksOrg/Figma-Context-MCP",
   "description": "Blocks fork of Framelink's Figma MCP server: hardened dependencies, no telemetry, per-request token resolution.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "figma-mcp": "dist/bin.js"
+    "mcp-figma": "dist/bin.js"
   },
   "files": [
     "dist",

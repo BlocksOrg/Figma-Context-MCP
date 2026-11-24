@@ -100,7 +100,7 @@ describe("loadEnvFile", () => {
   });
 
   function projectWithDotEnv(): string {
-    const dir = mkdtempSync(join(tmpdir(), "figma-mcp-env-"));
+    const dir = mkdtempSync(join(tmpdir(), "mcp-figma-env-"));
     writeFileSync(join(dir, ".env"), "FIGMA_API_KEY=from-repo-dotenv\n");
     return dir;
   }

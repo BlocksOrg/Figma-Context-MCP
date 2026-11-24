@@ -46,7 +46,7 @@ describe("per-request credential resolution", () => {
   }
 
   beforeEach(() => {
-    tokenFile = join(mkdtempSync(join(tmpdir(), "figma-mcp-token-")), ".oauth_token");
+    tokenFile = join(mkdtempSync(join(tmpdir(), "mcp-figma-token-")), ".oauth_token");
     vi.stubEnv("FIGMA_OAUTH_TOKEN_FILE", tokenFile);
     vi.stubEnv("FIGMA_OAUTH_TOKEN", "env-oauth-token");
     vi.stubEnv("FIGMA_API_KEY", "env-api-key");

@@ -8,8 +8,8 @@
 <div align="center">
   <h1>Framelink MCP for Figma</h1>
   <h3>Give your coding agent access to your Figma data.<br/>Implement designs in any framework in one-shot.</h3>
-  <a href="https://www.npmjs.com/package/@blocksuser/figma-mcp">
-    <img alt="npm" src="https://img.shields.io/npm/v/@blocksuser/figma-mcp.svg">
+  <a href="https://www.npmjs.com/package/@blocksuser/mcp-figma">
+    <img alt="npm" src="https://img.shields.io/npm/v/@blocksuser/mcp-figma.svg">
   </a>
   <a href="https://github.com/BlocksOrg/Figma-Context-MCP/blob/main/LICENSE">
     <img alt="MIT License" src="https://img.shields.io/github/license/BlocksOrg/Figma-Context-MCP" />
@@ -27,7 +27,7 @@
 
 ## Blocks fork
 
-This is the [Blocks](https://blocks.team) fork of [GLips/Figma-Context-MCP](https://github.com/GLips/Figma-Context-MCP) (Framelink MCP for Figma), published as [`@blocksuser/figma-mcp`](https://www.npmjs.com/package/@blocksuser/figma-mcp). Blocks runs this server inside agent sandboxes, which needs three things upstream does not provide:
+This is the [Blocks](https://blocks.team) fork of [GLips/Figma-Context-MCP](https://github.com/GLips/Figma-Context-MCP) (Framelink MCP for Figma), published as [`@blocksuser/mcp-figma`](https://www.npmjs.com/package/@blocksuser/mcp-figma). Blocks runs this server inside agent sandboxes, which needs three things upstream does not provide:
 
 - **Hardened dependency tree.** `pnpm audit --prod --audit-level=high` is a CI gate (111 advisories at fork time, 0 now) and dependabot keeps it that way. A tombstone test keeps `child_process` out of `src/` (CVE-2025-53967 / CVE-2025-15061).
 - **No telemetry.** This fork sends no telemetry; the PostHog client and its opt-out variables are gone.
@@ -42,7 +42,7 @@ git fetch upstream && git merge upstream/main
 
 The fork also adds five small read-only tools over the Figma REST API, next to upstream's `get_figma_data` and `download_figma_images`: `whoami`, `get_figma_comments`, `get_figma_file_versions`, `get_figma_dev_resources` and `get_figma_components_and_styles`. Each returns a lean YAML projection of the response; there are no write tools.
 
-Install for an MCP client: `npx -y @blocksuser/figma-mcp --stdio`. Issues with the fork go to [BlocksOrg/Figma-Context-MCP](https://github.com/BlocksOrg/Figma-Context-MCP/issues); upstream's docs at [framelink.ai](https://www.framelink.ai/docs) still describe the tools.
+Install for an MCP client: `npx -y @blocksuser/mcp-figma --stdio`. Issues with the fork go to [BlocksOrg/Figma-Context-MCP](https://github.com/BlocksOrg/Figma-Context-MCP/issues); upstream's docs at [framelink.ai](https://www.framelink.ai/docs) still describe the tools.
 
 Give [Cursor](https://cursor.sh/) and other AI-powered coding tools access to your Figma files with this [Model Context Protocol](https://modelcontextprotocol.io/introduction) server.
 
@@ -71,7 +71,7 @@ Reducing the amount of context provided to the model helps make the AI more accu
 
 Many code editors and other AI clients use a configuration file to manage MCP servers.
 
-The `@blocksuser/figma-mcp` server can be configured by adding the following to your configuration file.
+The `@blocksuser/mcp-figma` server can be configured by adding the following to your configuration file.
 
 > NOTE: You will need to create a Figma access token to use this server. Instructions on how to create a Figma API access token can be found [here](https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens).
 
@@ -82,7 +82,7 @@ The `@blocksuser/figma-mcp` server can be configured by adding the following to 
   "mcpServers": {
     "Framelink MCP for Figma": {
       "command": "npx",
-      "args": ["-y", "@blocksuser/figma-mcp", "--figma-api-key=YOUR-KEY", "--stdio"]
+      "args": ["-y", "@blocksuser/mcp-figma", "--figma-api-key=YOUR-KEY", "--stdio"]
     }
   }
 }
@@ -95,7 +95,7 @@ The `@blocksuser/figma-mcp` server can be configured by adding the following to 
   "mcpServers": {
     "Framelink MCP for Figma": {
       "command": "cmd",
-      "args": ["/c", "npx", "-y", "@blocksuser/figma-mcp", "--figma-api-key=YOUR-KEY", "--stdio"]
+      "args": ["/c", "npx", "-y", "@blocksuser/mcp-figma", "--figma-api-key=YOUR-KEY", "--stdio"]
     }
   }
 }

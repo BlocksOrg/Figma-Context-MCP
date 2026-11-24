@@ -6,12 +6,12 @@
     "url": "https://github.com/BlocksOrg/Figma-Context-MCP",
     "source": "github"
   },
-  "version": "0.6.4",
+  "version": "0.14.0-rc.2",
   "packages": [
     {
       "registryType": "npm",
-      "identifier": "@blocksuser/figma-mcp",
-      "version": "0.6.4",
+      "identifier": "@blocksuser/mcp-figma",
+      "version": "0.14.0-rc.2",
       "transport": {
         "type": "stdio"
       },

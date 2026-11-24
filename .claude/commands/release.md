@@ -1,6 +1,6 @@
 # Release
 
-Publish a new `@blocksuser/figma-mcp` release to npm.
+Publish a new `@blocksuser/mcp-figma` release to npm.
 
 ## Steps
 
@@ -20,9 +20,9 @@ Publish a new `@blocksuser/figma-mcp` release to npm.
    pushes `chore: release vX.Y.Z` + tag, creates the GitHub Release (generated notes) and runs
    `pnpm publish --access public` with the `NPM_TOKEN` secret.
 
-4. **Verify:** `npm view @blocksuser/figma-mcp version` shows the new version and
+4. **Verify:** `npm view @blocksuser/mcp-figma version` shows the new version and
    `gh release view vX.Y.Z --repo BlocksOrg/Figma-Context-MCP` exists.
 
 5. **Downstream:** the sandbox images install the package from `dependencies/*.package.json` in
-   BlocksOrg/agents (`"@blocksuser/figma-mcp": "^X.Y"`) — a major bump needs that range widened
+   BlocksOrg/agents (`"@blocksuser/mcp-figma": "^X.Y"`) — a major bump needs that range widened
    and a new agents revision deployed; minor/patch are picked up on the next image build.
