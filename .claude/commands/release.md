@@ -13,7 +13,7 @@ Publish a new `@blocksuser/figma-mcp` release to npm.
    (v<current> → v<next>)?" Never dispatch without confirmation — it publishes to the public
    registry and cannot be unpublished after 72 h.
 
-3. **Dispatch the workflow:**
+3. **Publish** — either run `./scripts/publish.sh <patch|minor|major>` locally (then `git commit -am "chore: release vX.Y.Z" && git tag vX.Y.Z && git push --follow-tags && gh release create vX.Y.Z --generate-notes`), or dispatch the workflow:
    `gh workflow run publish.yml --repo BlocksOrg/Figma-Context-MCP -f version=<patch|minor|major>`
    then `gh run list --repo BlocksOrg/Figma-Context-MCP --workflow publish.yml --limit 1` and
    `gh run watch <id>`. The job type-checks, tests, builds, bumps `package.json` + `server.json`,

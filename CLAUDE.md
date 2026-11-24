@@ -32,7 +32,12 @@ pnpm test -- --testNamePattern="pattern"
 
 ### Releasing
 
-Releases are manual and mirror BlocksOrg/mcp-linear: run the **Publish to npm** workflow (`.github/workflows/publish.yml`, Actions tab → "Run workflow", or `gh workflow run publish.yml -f version=patch|minor|major`). It type-checks, tests, builds, bumps `package.json` + `server.json`, commits `chore: release vX.Y.Z`, tags `vX.Y.Z`, creates the GitHub Release with generated notes, and runs `pnpm publish --access public` to `@blocksuser/figma-mcp` using the `NPM_TOKEN` repository secret (the same org token mcp-linear publishes with). Nothing publishes on merge to `main`.
+Releases are manual and mirror BlocksOrg/mcp-linear. Two equivalent paths:
+
+- **Locally:** `./scripts/publish.sh <patch|minor|major> [--rc] [--dry-run]` (the same script mcp-linear ships) — bumps `package.json` + `server.json`, `pnpm build`, `pnpm publish --access public --tag latest|rc` with your own npm login. Then commit the bump and tag it: `git commit -am "chore: release vX.Y.Z" && git tag vX.Y.Z && git push --follow-tags`.
+- **From GitHub:** the **Publish to npm** workflow (`.github/workflows/publish.yml`, Actions tab → "Run workflow", or `gh workflow run publish.yml -f version=patch|minor|major`) does the same plus the commit, tag and GitHub Release, using the `NPM_TOKEN` repository secret (the same org token mcp-linear publishes with).
+
+Nothing publishes on merge to `main`.
 
 ### PR Title Convention
 
