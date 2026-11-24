@@ -77,6 +77,21 @@ fi
 
 cd "$(dirname "$0")/.."
 
+# This repo is a pnpm project (pnpm-lock.yaml, `packageManager` pin, pnpm.overrides,
+# `prepack: pnpm build`), unlike mcp-linear's npm one. Use the pnpm on PATH, else the
+# pinned version through npx so a machine with only Node + npm can still publish.
+PNPM_VERSION=$(node -p "(require('./package.json').packageManager || 'pnpm@10').split('@')[1]")
+if command -v pnpm >/dev/null 2>&1; then
+  PNPM=(pnpm)
+else
+  echo "pnpm not found on PATH; using npx pnpm@$PNPM_VERSION"
+  PNPM=(npx -y "pnpm@$PNPM_VERSION")
+fi
+if [[ ! -d node_modules ]]; then
+  echo "Installing dependencies..."
+  "${PNPM[@]}" install --frozen-lockfile
+fi
+
 CURRENT=$(node -p "require('./package.json').version")
 TAG="latest"
 
@@ -101,14 +116,14 @@ jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > 
 
 echo "Publishing $PACKAGE@$VERSION (tag: $TAG)..."
 
-pnpm build
+"${PNPM[@]}" build
 
 # --no-git-checks: the bump is intentionally uncommitted at this point (commit + tag after).
 PUBLISH_ARGS=(--access public --tag "$TAG" --no-git-checks)
 if $DRY_RUN; then
   PUBLISH_ARGS+=(--dry-run)
 fi
-pnpm publish "${PUBLISH_ARGS[@]}"
+"${PNPM[@]}" publish "${PUBLISH_ARGS[@]}"
 
 if $DRY_RUN; then
   echo "Dry run complete for $PACKAGE@$VERSION (tag: $TAG) — nothing uploaded. package.json / server.json were bumped locally; git checkout them to undo."
